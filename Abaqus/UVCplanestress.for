@@ -21,9 +21,9 @@ C
       REAL(8) :: elastic_modulus, Q_inf, b, D_inf, a,
      1shear_modulus, bulk_modulus, poisson_ratio, mu2
       ! Used for intermediate calculations
-      REAL(8) :: yield_stress, ep_eq, ep_eq_init,
+      REAL(8) :: yield_stress, ep_eq, ep_eq_init, beta_r1, beta_r2,
      1hard_iso_Q, hard_iso_D, hard_iso_total, isotropic_modulus,
-     2yield_function, e_k, beta, gamma_denom, denom,
+     2yield_function, e_k, beta, gamma_denom, denom, start_time1, start_time2,
      3yield_condition, f_bar, f_bar_2, beta_prime, consist_param
       ! Tangent modulus
       REAL(8), DIMENSION(3) :: n_tilde, n_hat, H_prime, H_tilde
@@ -36,8 +36,8 @@ C
       ! Tensors
       REAL(8), DIMENSION(3) :: strain_plastic, dstran_p,
      1alpha, gamma_diag, alpha_tilde,alpha_tilde_prime,
-     2strain, eta, eta_tilde, eta_trial, stress_trial,
-     3gamma_prime_diag, stress_rel
+     2strain, eta, eta_tilde, eta_trial, stress_trial, 
+     3gamma_prime_diag, stress_rel, strain_rate, sigma
       REAL(8), DIMENSION(3, 3) :: Q_mat, Q_mat_t, Lambda_P, Lambda_C,
      1elastic_matrix, P_mat, compliance_matrix, ID3
       ! Parameters
@@ -45,7 +45,7 @@ C
      1I_ALPHA
       REAL(8) :: TOL, ONE, TWO, THREE, ZERO, SQRT23, SIX
       PARAMETER(TOL=1.0D-8,
-     1N_BASIC_PROPS=7, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
+     1N_BASIC_PROPS=11, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
      2ONE=1.0D0, TWO=2.0D0, THREE=3.0D0, ZERO=0.D0, SIX=6.0D0,
      3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=4)
 C ----------------------------------------------------------------------C
@@ -67,13 +67,17 @@ C
       ALLOCATE(alpha_k_i(n_backstresses, ntens))
 C
       ! Material Properties
-      elastic_modulus = props(1)
-      poisson_ratio = props(2)
-      yield_stress = props(3)
-      q_inf = props(4)
-      b = props(5)
-      d_inf = props(6)
-      a = props(7)
+      beta_r1 = props(1)
+      start_time1 = props(2)
+      beta_r2 = props(3)
+      start_time2 = props(4)
+      elastic_modulus = props(5)
+      poisson_ratio = props(6)
+      yield_stress = props(7)
+      q_inf = props(8)
+      b = props(9)
+      d_inf = props(10)
+      a = props(11)
       DO i = 1, n_backstresses  ! First backstress starts at index = 8
         c_k(i) = props((N_BASIC_PROPS - 1) + 2 * i)
         gamma_k(i) = props(N_BASIC_PROPS + 2 * i)
@@ -139,7 +143,7 @@ C
 C ----------------------------------------------------------------------C
       ! Don't include e33, and calculate it later
       strain = stran + dstran
-      stress_trial = stress + MATMUL(elastic_matrix, dstran)
+      stress_trial = statev(nstatv-ntens+1:nstatv) + MATMUL(elastic_matrix, dstran)
       !stress_trial = MATMUL(elastic_matrix, strain - strain_plastic)
 C
       hard_iso_Q = q_inf * (ONE - EXP(-b * ep_eq))
@@ -242,7 +246,7 @@ C
 C
 C ----------------------------------------------------------------------C
       IF (it_num .EQ. 0) THEN  ! Elastic loading
-        stress = stress_trial
+        sigma = stress_trial
         ddsdde = elastic_matrix
       ELSE  ! Plastic loading
         eta_tilde = eta_trial + MATMUL(Q_mat_t, alpha_tilde)
@@ -264,7 +268,7 @@ C     1  + consist_param * MATMUL(P_mat, stress_rel)
 C        stress = MATMUL(elastic_matrix, strain - strain_plastic)
         dstran_p = consist_param * MATMUL(P_mat, stress_rel)
         strain_plastic = strain_plastic + dstran_p
-        stress = stress_trial - MATMUL(elastic_matrix, dstran_p)
+        sigma = stress_trial - MATMUL(elastic_matrix, dstran_p)
       END IF
 C ----------------------------------------------------------------------C
 C
@@ -311,6 +315,17 @@ C
 C
         ddsdde = ONE/TWO * (C_ep + TRANSPOSE(C_ep))
         END IF
+C
+      statev(nstatv-ntens+1:nstatv) = sigma
+      stress = sigma
+      strain_rate = dstran / dtime
+      IF ((time(2) .GE. start_time1) .AND. (time(2) .LT. start_time2)) THEN
+        stress = stress + beta_r1 * MATMUL(elastic_matrix, strain_rate)
+        ddsdde = ddsdde + beta_r1 * elastic_matrix / dtime
+      ELSE IF (time(2) .GE. start_time2) THEN
+        stress = stress + beta_r2 * MATMUL(elastic_matrix, strain_rate)
+        ddsdde = ddsdde + beta_r2 * elastic_matrix / dtime
+      END IF
 C ----------------------------------------------------------------------C
 C
       ! Update the state variables

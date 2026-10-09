@@ -18,8 +18,8 @@ C
       ! Subroutine control
       INTEGER :: i, j, n_backstresses, it_num, converged, ind_alpha
       ! Material properties
-      REAL(8) :: elastic_modulus, Q_inf, b, D_inf, a,
-     1shear_modulus, bulk_modulus, poission_ratio, mu2, lame_first
+      REAL(8) :: elastic_modulus, Q_inf, b, D_inf, a, beta_r1, beta_r2, start_time1,
+     1shear_modulus, bulk_modulus, poission_ratio, mu2, lame_first, start_time2
       ! Used for intermediate calculations
       REAL(8) :: yield_stress, ep_eq, ep_eq_init, a_temp,
      1hard_iso_Q, hard_iso_D, hard_iso_total, a_dot_n,
@@ -36,13 +36,13 @@ C
       REAL(8), DIMENSION(6) :: strain_tens, strain_plastic,
      1yield_normal, alpha, strain_trial, stress_relative,
      2stress_dev, ID2, stress_tens, check, dstran_tens, alpha_diff,
-     3alpha_upd, dpe
+     3alpha_upd, dpe, sigma, strain_rate
       ! Parameters
       INTEGER :: N_BASIC_PROPS, TERM_PER_BACK, MAX_ITERATIONS,
      1I_ALPHA
       REAL(8) :: TOL, ONE, TWO, THREE, ZERO, SQRT23
       PARAMETER(TOL=1.0D-10,
-     1N_BASIC_PROPS=7, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
+     1N_BASIC_PROPS=11, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
      2ONE=1.0D0, TWO=2.0D0, THREE=3.0D0, ZERO=0.D0,
      3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=7)
 C ----------------------------------------------------------------------C
@@ -89,13 +89,17 @@ C
       END DO
 C
       ! Read in the material properties
-      elastic_modulus = props(1)
-      poission_ratio = props(2)
-      yield_stress = props(3)
-      q_inf = props(4)
-      b = props(5)
-      d_inf = props(6)
-      a = props(7)
+      beta_r1 = props(1)
+      start_time1 = props(2)
+      beta_r2 = props(3)
+      start_time2 = props(4)
+      elastic_modulus = props(5)
+      poission_ratio = props(6)
+      yield_stress = props(7)
+      q_inf = props(8)
+      b = props(9)
+      d_inf = props(10)
+      a = props(11)
       DO i = 1, n_backstresses  ! First backstress starts at index = 8
         c_k(i) = props((N_BASIC_PROPS - 1) + 2 * i)
         gamma_k(i) = props(N_BASIC_PROPS + 2 * i)
@@ -124,7 +128,7 @@ C ----------------------------------------------------------------------C
         END DO
       END DO
       ! Stress tensor
-      stress_tens = stress + MATMUL(c_mat, dstran)
+      stress_tens = statev(nstatv-ntens+1:nstatv) + MATMUL(c_mat, dstran)
       !stress_tens = MATMUL(c_mat, (strain_tens - strain_plastic))
 C
       stress_hydro = SUM(stress_tens(1:3)) / THREE
@@ -208,7 +212,7 @@ C
 C
 C ----------------------------------------------------------------------C
       IF (it_num .EQ. 0) THEN  ! Elastic loading
-        stress = stress_tens
+        sigma = stress_tens
       ELSE  ! Plastic loading
         !strain_plastic = strain_plastic + plastic_mult * yield_normal
         dpe = plastic_mult * yield_normal
@@ -216,7 +220,7 @@ C ----------------------------------------------------------------------C
 C        strain_plastic(4:6) = strain_plastic(4:6) 
 C     1  + plastic_mult * yield_normal(4:6)
         strain_plastic = strain_plastic + dpe
-        stress = stress_tens - MATMUL(c_mat, dpe)
+        sigma = stress_tens - MATMUL(c_mat, dpe)
         !stress = MATMUL(c_mat, (strain_tens - strain_plastic))
 C
         alpha_diff = alpha
@@ -261,6 +265,17 @@ C     Tangent modulus
         END DO
         ddsdde = ONE/TWO * (TRANSPOSE(ddsdde) + ddsdde)
       END IF
+C
+      statev(nstatv-ntens+1:nstatv) = sigma
+      stress = sigma
+      strain_rate = dstran / dtime
+      IF ((time(2) .GE. start_time1) .AND. (time(2) .LT. start_time2)) THEN
+        stress = stress + beta_r1 * MATMUL(c_mat, strain_rate)
+        ddsdde = ddsdde + beta_r1 * c_mat / dtime
+      ELSE IF (time(2) .GE. start_time2) THEN
+        stress = stress + beta_r2 * MATMUL(c_mat, strain_rate)
+        ddsdde = ddsdde + beta_r2 * c_mat / dtime
+      END
 C ----------------------------------------------------------------------C
 C
       ! Update the state variables

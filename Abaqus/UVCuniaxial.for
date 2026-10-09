@@ -18,8 +18,8 @@ C
       ! Variables defined in the subroutine
       INTEGER :: i, j, n_backstresses, it_num, is_converged
       ! Material properties
-      REAL(8) :: elastic_modulus, sy_0, Q, b, c_k, gamma_k,
-     1ep_eq_init, alpha_init, D, a
+      REAL(8) :: elastic_modulus, sy_0, Q, b, c_k, gamma_k, beta_r1, beta_r2,
+     1ep_eq_init, alpha_init, D, a, strain_rate, start_time1, start_time2
       ! Used for intermediate calculations
       REAL(8) :: alpha, sy, sigma, ep_eq, e_p, phi, aux, dit, dep,
      1A_term,  yield_radius, iso_Q, iso_D, e_p_total
@@ -31,7 +31,7 @@ C
      1DEBUG_ON
       REAL(8) :: TOL, ONE, TWO, ZERO
       PARAMETER(TOL=1.0D-10,
-     1N_BASIC_PROPS=6, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
+     1N_BASIC_PROPS=10, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
      2ONE=1.0D0, TWO=2.0D0, ZERO=0.D0)
 C-----------------------------------------------------------------------C
 C     
@@ -48,18 +48,22 @@ C-----------------------------------------------------------------------C
       ALLOCATE(alpha_k(n_backstresses))
       ALLOCATE(alpha_k_init(n_backstresses))
 C      
-      elastic_modulus = props(1)
-      sy_0 = props(2)
-      Q = props(3)
-      b = props(4)
-      D = props(5)
-      a = props(6)
+      beta_r1 = props(1)
+      start_time1 = props(2)
+      beta_r2 = props(3)
+      start_time2 = props(4)
+      elastic_modulus = props(5)
+      sy_0 = props(6)
+      Q = props(7)
+      b = props(8)
+      D = props(9)
+      a = props(10)
 C-----------------------------------------------------------------------C
 C     
       ! Elastic trial step
 C
 C-----------------------------------------------------------------------C
-      sigma = stress(1) + elastic_modulus * dstran(1)
+      sigma = statev(nstatv) + elastic_modulus * dstran(1)
 C
       ! Determine isotropic component of hardening
       ep_eq = statev(1)  ! 1st state variable assumed to be equivalent plastic strain
@@ -159,7 +163,17 @@ C
         ddsdde(1, 1) = (elastic_modulus * A_term) /
      1  (elastic_modulus + A_term)
       END IF
+C
+      statev(nstatv) = sigma
       stress(1) = sigma
+      strain_rate = dstran(1) / dtime
+      IF ((time(2) .GE. start_time1) .AND. (time(2) .LT. start_time2)) THEN
+        stress(1) = stress(1) + beta_r1 * elastic_modulus * strain_rate
+        ddsdde(1, 1) = ddsdde(1, 1) + beta_r1 * elastic_modulus / dtime
+      ELSE IF (time(2) .GE. start_time2) THEN
+        stress(1) = stress(1) + beta_r2 * elastic_modulus * strain_rate
+        ddsdde(1, 1) = ddsdde(1, 1) + beta_r2 * elastic_modulus / dtime
+      END IF
 C
       ! Update the state variables
       statev(1) = ep_eq
