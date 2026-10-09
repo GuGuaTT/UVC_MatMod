@@ -328,7 +328,7 @@ ddsdde = ddsdde + beta_r * elasticity_matrix / dtime
 
 These two modifications comprise the **UVC-D** subroutine. To validate its implementation, a series of tests were done in ABAQUS. For example, **Figure 1a** shows an SDOF system subjected to sine wave ground motion. **Figure 1b** compares the point mass responses obtained using the built-in elastic material model with built-in Rayleigh damping $\beta = 0.005$, and the UVC-D elastic material model with $\beta_R = 0.005$. The close agreement between the two responses confirms the correctness of the UVC-D subroutine implementation. For additional details on the validation process, please refer to the validation slides.
 
-![Fig1](Abaqus\Figs\Fig1.jpg)
+![Fig1](Figs/Fig1.jpg)
 
 Figure 1 Validation of the UVC-D subroutine (for more details please refer to the validation slides)
 
@@ -345,7 +345,7 @@ The detailed usage instructions on the UVC subroutine can be found in [the offic
 For example, if two backstresses are used (N = 2), the value for the multiaxial case is 19 as shown in **Figure 2**.
 
 
-![Fig1](Abaqus\Figs\Fig2.jpg)
+![Fig1](Figs/Fig2.jpg)
 
 Figure 2 Input parameters of the UVC subroutine
 
@@ -357,11 +357,11 @@ To use the UVC-D subroutine, in the ABAQUS User Material section, aside from the
 This design aligns with the typical modeling workflow in **ABAQUS** dynamic analyses.  For example, **Figure 4** illustrates the time history of the story drift ratio of an MRF under ground motion. A static gravity loading step with a duration of 1 second (the time here is unreal) usually precedes the dynamic loading phase; therefore,  $t^1$ can be set to 1 (as shown in **Figure 3**) to ensure that damping is inactive during the gravity step. After the ground motion ends at $t^2$, a large value of $\beta^2_R$ can be specified to rapidly suppress free vibrations for residual drift, as demonstrated in **Figures 3** and **4**.
 
 
-![Fig1](Abaqus\Figs\Fig3.jpg)
+![Fig1](Figs/Fig3.jpg)
 
 Figure 3 Input parameters of the UVC-D subroutine
 
-<img src="Abaqus\Figs\Fig4.jpg" alt="Slide0" width="550"/>
+<img src="Figs/Fig4.jpg" alt="Slide0" width="550"/>
 
 Figure 4 Example of MRF response under dynamic ground motion for demonstration of UVC-D subroutine usage
 
