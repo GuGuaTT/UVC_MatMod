@@ -26,6 +26,7 @@ public:
     std::vector<double> cK, std::vector<double> gammaK);
   //! Destructor
   ~UVCuniaxial();
+  UVCuniaxial(void);
 
   /* ------------------------------------------------------------------------ */
   /* Methods                                                                  */

@@ -264,7 +264,7 @@ int UVCplanestress::returnMapping() {
   Vector gammaDiagPrime = Vector(N_DIMS);
   double yieldFunction = 0., yieldStress = 0., consistParam = 0., isotropicModulus = 0., eK = 0.,
     consistDenom = 0., fBarSquared = 0., fBar = 0., beta = 0., gammaDenom = 0., betaPrime = 0.;
-
+  double dEpEq = 0.;
   // Elastic trial step
   alpha.Zero();
   for (unsigned int i = 0; i < nBackstresses; ++i)
@@ -292,7 +292,7 @@ int UVCplanestress::returnMapping() {
     beta = 0.;
     alphaTilde.Zero();
     for (unsigned int i = 0; i < nBackstresses; ++i) {
-      eK = calculateEk(i);
+      eK = exp(-gammaK[i] * dEpEq);
       beta += cK[i] / gammaK[i] * (1. - eK);
       alphaTilde += alphaKConverged[i] * eK;
     }
@@ -315,7 +315,7 @@ int UVCplanestress::returnMapping() {
     betaPrime = 0.;
     alphaTildePrime.Zero();
     for (unsigned int i = 0; i < nBackstresses; ++i) {
-      eK = calculateEk(i);
+      eK = exp(-gammaK[i] * dEpEq);
       betaPrime = betaPrime - cK[i] * isotropicModulus / (gammaK[i] * pow(yieldStress, 2)) * (1. - eK)
         + cK[i] * eK / yieldStress;
       alphaTildePrime = alphaTildePrime + gammaK[i] * eK * alphaKConverged[i];
@@ -332,7 +332,8 @@ int UVCplanestress::returnMapping() {
     // Newton step
     yieldFunction = 1. / 2. * fBarSquared - 1. / 3. * pow(yieldStress, 2);
     consistParam = consistParam - yieldFunction / (consistDenom + RETURN_MAP_TOL);
-    strainPEqTrial = strainPEqConverged + sqrt(2. / 3.) * consistParam * fBar;
+    dEpEq = sqrt(2. / 3.) * consistParam * fBar;
+    strainPEqTrial = strainPEqConverged + dEpEq;
 
     // Check convergence
     if (abs(yieldFunction) < RETURN_MAP_TOL) {
@@ -352,7 +353,7 @@ int UVCplanestress::returnMapping() {
     stressRelative = qMat * eta;
     yieldStress = calculateYieldStress();
     for (unsigned int i = 0; i < nBackstresses; ++i) {
-      eK = calculateEk(i);
+      eK = exp(-gammaK[i] * dEpEq);
       alphaKTrial[i] = alphaKConverged[i] * eK + stressRelative / yieldStress * cK[i] / gammaK[i] * (1. - eK);
     }
     strainPlasticTrial = strainPlasticConverged + consistParam * pMat * stressRelative;
@@ -399,12 +400,14 @@ void UVCplanestress::calculateStiffness(double consistParam, double fBar, const 
 
     // Kinematic hardening related parameters
     nHat = stressRelative / fBar;
-    for (unsigned int i = 0; i < nBackstresses; ++i)
-      beta += cK[i] / gammaK[i] * (1. - eK);
+    for (unsigned int i = 0; i < nBackstresses; ++i) {
+        eK = exp(-gammaK[i] * sqrt(2. / 3.) * consistParam * fBar);
+        beta += cK[i] / gammaK[i] * (1. - eK);
+    }
     beta = 1. + beta / yieldStress;
     hPrime = -(beta - 1.) * isotropicModulus * stressRelative / yieldStress;
     for (unsigned int i = 0; i < nBackstresses; ++i) {
-      eK = calculateEk(i);
+      eK = exp(-gammaK[i] * sqrt(2. / 3.) * consistParam * fBar);
       hPrime += cK[i] * eK / yieldStress * stressRelative - gammaK[i] * eK * alphaKConverged[i];
     }
     hPrime *= sqrt(2. / 3.);

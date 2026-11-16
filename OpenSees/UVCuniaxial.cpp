@@ -154,7 +154,28 @@ UVCuniaxial::UVCuniaxial(int tag, double E, double sy0, double qInf, double b,
     alphaKConverged.push_back(0.);
   }
 };
-
+UVCuniaxial::UVCuniaxial()
+    : UniaxialMaterial(0, MAT_TAG_UVCuniaxial),
+    elasticModulus(0.),
+    yieldStress(0.),
+    qInf(0.),
+    bIso(0.),
+    dInf(0.),
+    aIso(0.),
+    stiffnessInitial(0.),
+    nBackstresses(0),
+    strainConverged(0.),
+    strainTrial(0.),
+    strainPEqConverged(0.),
+    strainPEqTrial(0.),
+    stressConverged(0.),
+    stressTrial(0.),
+    stiffnessConverged(0.),
+    stiffnessTrial(0.),
+    flowDirection(0.),
+    plasticLoading(false)
+{
+}
 /* ------------------------------------------------------------------------ */
 
 UVCuniaxial::~UVCuniaxial() {
@@ -231,7 +252,7 @@ void UVCuniaxial::returnMapping(double strainIncrement) {
     for (int i = 0; i < nBackstresses; ++i) {
       alphaKTrial[i] = sgn<double>(stressRadius) * cK[i] / gammaK[i] -
         (sgn<double>(stressRadius) * cK[i] / gammaK[i] - alphaKConverged[i]) *
-        exp(-gammaK[i] * (ePEq - strainPEqConverged));
+          exp(-gammaK[i] * fabs(ePTotal));
       alpha += alphaKTrial[i];
     }
 

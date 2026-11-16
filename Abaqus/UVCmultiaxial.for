@@ -27,7 +27,8 @@ C
      3isotropic_modulus, kin_modulus,
      4stress_relative_norm, strain_trace, alpha_trace, e_k,
      5ID2_out_ID2, n_out_n, stress_hydro, sigma_vm,
-     6Lam, n33_check, alpha_out_n, beta, theta_1, theta_2, theta_3,srn2
+     6Lam, n33_check, alpha_out_n, beta, theta_1, theta_2, theta_3,
+     7srn2, hard_kin_H, c_bn
       ! Backstress arrays
       REAL(8), DIMENSION(:, :), ALLOCATABLE :: alpha_k
       REAL(8), DIMENSION(:), ALLOCATABLE :: C_k, gamma_k
@@ -36,7 +37,7 @@ C
       REAL(8), DIMENSION(6) :: strain_tens, strain_plastic,
      1yield_normal, alpha, strain_trial, stress_relative,
      2stress_dev, ID2, stress_tens, check, dstran_tens, alpha_diff,
-     3alpha_upd, dpe
+     3alpha_upd, dpe, d_vec
       ! Parameters
       INTEGER :: N_BASIC_PROPS, TERM_PER_BACK, MAX_ITERATIONS,
      1I_ALPHA
@@ -125,7 +126,6 @@ C ----------------------------------------------------------------------C
       END DO
       ! Stress tensor
       stress_tens = stress + MATMUL(c_mat, dstran)
-      !stress_tens = MATMUL(c_mat, (strain_tens - strain_plastic))
 C
       stress_hydro = SUM(stress_tens(1:3)) / THREE
       strain_trace = SUM(strain_tens(1:3))
@@ -156,6 +156,15 @@ C
 C ----------------------------------------------------------------------C
 C
       ! Radial return mapping if plastic loading
+
+      ! Each iteration the flow
+      ! normal n is RECOMPUTED from the partial relative stress
+      ! Z(lam) = s_trial - sum_k e_k(lam) * alpha_k(committed)
+      ! n = Z/||Z||
+      ! Suchocki, C. (2022). On finite element implementation of cyclic
+      ! elastoplasticity: theory, coding, and exemplary problems.
+      ! Acta Mechanica, 233, 83-120.
+      ! https://doi.org/10.1007/s00707-021-03069-3
 C
 C ----------------------------------------------------------------------C
       ! Calculate the consitency parameter (plastic multiplier)
@@ -164,42 +173,50 @@ C ----------------------------------------------------------------------C
       DO WHILE ((converged .EQ. 0) .AND. (it_num .LT. MAX_ITERATIONS))
         it_num = it_num + 1
 C
+        ! Equivalent plastic strain at the current plastic multiplier
+        ep_eq = ep_eq_init + SQRT23 * plastic_mult
         ! Calculate the isotropic hardening parameters
         hard_iso_Q = q_inf * (ONE - EXP(-b * ep_eq))
         hard_iso_D = d_inf * (ONE - EXP(-a * ep_eq))
         hard_iso_total = yield_stress + hard_iso_Q - hard_iso_D
         isotropic_modulus = b * (q_inf - hard_iso_Q) -
      1  a * (d_inf - hard_iso_D)
+C
+        ! Calculate the normal to the yield surface
+        alpha_upd(:) = ZERO
+        hard_kin_H = ZERO
+        DO i = 1, n_backstresses
+          e_k = EXP(-gamma_k(i) * SQRT23 * plastic_mult)
+          alpha_upd = alpha_upd + e_k * alpha_k(i, :)
+          hard_kin_H = hard_kin_H +
+     1    SQRT23 * C_k(i) / gamma_k(i) * (ONE - e_k)
+        END DO
+        stress_relative = stress_dev - alpha_upd
+        srn2 = SQRT(dotprod6(stress_relative, stress_relative))
+        yield_normal = stress_relative / (TOL + srn2)
+C
         ! Calculate the kinematic hardening parameters
         kin_modulus = ZERO
         DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * SQRT23 * plastic_mult)
           kin_modulus = kin_modulus + C_k(i) * e_k 
      1    - SQRT(THREE/TWO)*gamma_k(i)*e_k
      2    * dotprod6(yield_normal, alpha_k(i, :))
         END DO
-        a_dot_n = ZERO
-        alpha_upd(:) = ZERO
-        DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
-          alpha_upd = alpha_upd + e_k * alpha_k(i, :)
-     1    + SQRT23 * C_k(i) / gamma_k(i) * (ONE - e_k) * yield_normal
-        END DO
-        a_dot_n = dotprod6(alpha_upd - alpha, yield_normal)  ! n : \Delta \alpha
         
-        p_mult_numer = stress_relative_norm -
-     1  (a_dot_n + SQRT23 * hard_iso_total + mu2 * plastic_mult)
+        ! Calculate Newton residual
+        p_mult_numer = srn2 -
+     1  (hard_kin_H + SQRT23 * hard_iso_total + mu2 * plastic_mult)
 C
         p_mult_denom = -mu2 *
      1  (ONE + (kin_modulus + isotropic_modulus) /
-     2  (THREE * shear_modulus))
-C
-        ! Update variables
-        plastic_mult = plastic_mult - p_mult_numer / p_mult_denom
-        ep_eq = ep_eq_init + SQRT23 * plastic_mult
+     2  (THREE * shear_modulus))      
 C
         IF (ABS(p_mult_numer) .LT. TOL) THEN
           converged = 1
+        ELSE
+          plastic_mult = plastic_mult - p_mult_numer / p_mult_denom
+          ep_eq = ep_eq_init + SQRT23 * plastic_mult
         END IF
       END DO
 C ----------------------------------------------------------------------C
@@ -210,24 +227,20 @@ C ----------------------------------------------------------------------C
       IF (it_num .EQ. 0) THEN  ! Elastic loading
         stress = stress_tens
       ELSE  ! Plastic loading
-        !strain_plastic = strain_plastic + plastic_mult * yield_normal
         dpe = plastic_mult * yield_normal
         dpe(4:6) = dpe(4:6) + plastic_mult * yield_normal(4:6)
-C        strain_plastic(4:6) = strain_plastic(4:6) 
-C     1  + plastic_mult * yield_normal(4:6)
         strain_plastic = strain_plastic + dpe
         stress = stress_tens - MATMUL(c_mat, dpe)
-        !stress = MATMUL(c_mat, (strain_tens - strain_plastic))
 C
-        alpha_diff = alpha
         alpha(:) = ZERO
+        d_vec(:) = ZERO
         DO i = 1, n_backstresses  ! Update backstress components
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * SQRT23 * plastic_mult)
+          d_vec = d_vec + SQRT23 * gamma_k(i) * e_k * alpha_k(i, :)
           alpha_k(i, :) = e_k * alpha_k(i, :) +
      1    SQRT23 * yield_normal * C_k(i) / gamma_k(i) * (ONE - e_k)
           alpha = alpha + alpha_k(i, :)
         END DO
-        alpha_diff = alpha - alpha_diff
       END IF
 C
 C     Tangent modulus
@@ -243,20 +256,20 @@ C     Tangent modulus
       ELSE  ! Plastic loading
         beta = ONE +
      1  (kin_modulus + isotropic_modulus) / (THREE * shear_modulus)
-        theta_1 = ONE - mu2 * plastic_mult / stress_relative_norm
-        theta_3 = ONE / (beta * stress_relative_norm)
-        theta_2 = ONE / beta 
-     1  + dotprod6(yield_normal, alpha_diff) * theta_3 
-     2  - (ONE - theta_1)
+        theta_1 = ONE - mu2 * plastic_mult / srn2
+        theta_2 = ONE / beta - (ONE - theta_1)
+        a_dot_n = dotprod6(yield_normal, d_vec)
+        c_bn = (ONE - theta_1) / beta
         DO j = 1, ntens
           DO i = 1, ntens
             ID2_out_ID2 = ID2(i) * ID2(j)
             n_out_n = yield_normal(i) * yield_normal(j)
-            alpha_out_n = alpha_diff(i) * yield_normal(j)
+            alpha_out_n = (d_vec(i) - a_dot_n * yield_normal(i))
+     1      * yield_normal(j)
             ddsdde(i, j) = bulk_modulus * ID2_out_ID2
      1      +mu2 * theta_1*(ID4(i, j) - ONE/THREE*ID2_out_ID2)
-     2      -mu2 * theta_2 * n_out_n +
-     3      +mu2 * theta_3 * alpha_out_n
+     2      -mu2 * theta_2 * n_out_n
+     3      -c_bn * alpha_out_n
           END DO
         END DO
         ddsdde = ONE/TWO * (TRANSPOSE(ddsdde) + ddsdde)

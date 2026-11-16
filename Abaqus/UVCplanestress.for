@@ -168,6 +168,7 @@ C ----------------------------------------------------------------------C
       ! Calculate the consitency parameter
       it_num = 0
       consist_param = ZERO
+      dep_eq = ZERO
       DO WHILE ((converged .EQ. 0) .AND. (it_num .LT. MAX_ITERATIONS))
         it_num = it_num + 1
 C
@@ -181,7 +182,7 @@ C
         beta = ZERO
         alpha_tilde(:) = ZERO
         DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * dep_eq)
           beta = beta + C_k(i) / gamma_k(i) * (ONE - e_k)
           DO j = 1, ntens
             alpha_tilde(j) = alpha_tilde(j) + alpha_k(i, j) * e_k
@@ -206,7 +207,7 @@ C
         beta_prime = ZERO
         alpha_tilde_prime(:) = ZERO
         DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * dep_eq)
           beta_prime = beta_prime
      1    - C_k(i) * isotropic_modulus
      2    / (gamma_k(i) * hard_iso_total**2) * (ONE - e_k)
@@ -230,7 +231,8 @@ C
      3  - SQRT23*TWO/THREE * hard_iso_total * isotropic_modulus * f_bar
 C
         consist_param = consist_param - yield_condition / denom
-        ep_eq = ep_eq_init + SQRT23 * consist_param * f_bar
+        dep_eq = SQRT23 * consist_param * f_bar
+        ep_eq = ep_eq_init + dep_eq
 C
         IF (ABS(yield_condition) .LT. TOL) THEN
           converged = 1
@@ -253,7 +255,7 @@ C
         hard_iso_D = d_inf * (ONE - EXP(-a * ep_eq))
         hard_iso_total = yield_stress + hard_iso_Q - hard_iso_D
         DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * dep_eq)
           DO j = 1, ntens
             alpha_k(i, j) = alpha_k(i, j) * e_k +
      1      stress_rel(j)/hard_iso_total * c_k(i)/gamma_k(i)*(ONE-e_k)
@@ -275,7 +277,7 @@ C ----------------------------------------------------------------------C
         n_hat = stress_rel / f_bar
         H_prime =-(beta-ONE)*isotropic_modulus*stress_rel/hard_iso_total
         DO i = 1, n_backstresses
-          e_k = EXP(-gamma_k(i) * (ep_eq - ep_eq_init))
+          e_k = EXP(-gamma_k(i) * dep_eq)
           H_prime = H_prime + C_k(i) * e_k * stress_rel / hard_iso_total
      1    - gamma_k(i) * e_k * alpha_k_i(i, :)
         END DO
