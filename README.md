@@ -12,7 +12,7 @@ The theory and implementations of the material model are described in detail in 
 ## Changelog
 
 - 16-Nov-2026 (by Lucas Kuhn, [@LucasKuhn67](https://github.com/LucasKuhn67)):
-  - Abaqus and OpenSees multiaxial: the normal to the yield surface is now recomputed inside the return-mapping loop instead of being fixed at the trial state, following [Suchocki (2022)](https://doi.org/10.1007/s00707-021-03069-3). The consistent tangent is updated accordingly.
+  - Abaqus and OpenSees multiaxial: the normal to the yield surface is now recomputed inside the return-mapping loop instead of being fixed at the trial state, following [Suchocki (2022)](https://doi.org/10.1007/s00707-021-03069-3). The consistent tangent is updated accordingly. Thanks to [Claudio Perez (@claudioperez)](https://github.com/claudioperez) for pointing this out.
   - Abaqus plane stress, uniaxial and uniaxial_IS, and OpenSees: the backstress update uses the plastic strain increment directly, fixing a rounding issue in the equivalent plastic strain.
   - OpenSees UVCuniaxial: constructor fix.
 - 02-Jun-2023 (by Alex Hartloper, [@ahartloper](https://github.com/ahartloper); integrated into the lab repository on 16-Nov-2026):
