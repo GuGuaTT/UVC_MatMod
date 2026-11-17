@@ -133,9 +133,10 @@ For a user material, Abaqus allows mass-proportional damping to be assigned sepa
 The supplied extension uses the **elastic material stiffness** $\mathbf D^{el}$, rather than the evolving elastoplastic tangent, to calculate its damping stress. For $\Delta t>0$:
 
 $$
-\boldsymbol\sigma_m[README.md](../README.md)
+\boldsymbol\sigma_m
 =\boldsymbol\sigma_{\mathrm{UVC}}
-+\beta_R(t)\mathbf D^{el}\frac{\Delta\boldsymbol\varepsilon}{\Delta t},
++\beta_R(t)\mathbf D^{el}
+\frac{\Delta\boldsymbol\varepsilon}{\Delta t}.
 $$
 
 $$
@@ -330,7 +331,7 @@ The damping extension is based on the RESSLab version supplied with the 16-Nov-2
 - Both uniaxial implementations evaluate the backstress exponential using the accumulated plastic strain increment, `ABS(e_p_total)`.
 - The plane-stress implementation evaluates the backstress exponentials using `dep_eq`, with `ep_eq = ep_eq_init + dep_eq`.
 
-The uniaxial and plane-stress evaluations therefore retain the direct-increment treatment introduced in the RESSLab update to avoid rounding errors from subtracting accumulated equivalent plastic strains. The optional damping adds input-layout detection, storage of the constitutive stress, and damping contributions to stress and the Jacobian. The supplied `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for` remain unchanged. `UVCuniaxial_IS.for` has been extended to include this damping while preserving its constitutive update and residual-stress functions.
+The uniaxial and plane-stress evaluations therefore retain the direct-increment treatment introduced in the RESSLab update to avoid rounding errors from subtracting accumulated equivalent plastic strains. The optional damping adds input-layout detection, storage of the constitutive stress, and damping contributions to stress and the Jacobian.
 
 ## References and attribution
 
