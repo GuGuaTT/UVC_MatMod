@@ -2,11 +2,11 @@
 
 This directory provides Updated Voce–Chaboche (UVC) user material subroutines for Abaqus/Standard. The constitutive model combines nonlinear isotropic and kinematic hardening to describe structural steels under cyclic loading; see Hartloper et al. (2021).
 
-The reference implementation is the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**. All four UMATs supplied here extend that implementation with optional, time-dependent stiffness-proportional damping, including the uniaxial residual-stress variant. In this document, **UVC-D** denotes the damping-enabled mode of these files. It does not denote a separate set of `-D.for` files.
+The implementation is based on the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)** and includes optional, time-dependent stiffness-proportional damping. All four UMATs, including the uniaxial residual-stress variant, provide this damping option within the UVC model.
 
 ![Single-degree-of-freedom model and comparison of point-mass absolute acceleration histories](figures/Fig1.jpg)
 
-**Figure 1.** Supplied elastic-response comparison: (a) a point mass connected through an MPC beam constraint to the top of a wide-flange member subjected to sinusoidal base excitation; (b) point-mass absolute acceleration from a built-in elastic material with $\beta=0.005$ and the modified UVC implementation operating in its elastic range with $\beta_R=0.005$.
+**Figure 1.** Elastic-response comparison: (a) a point mass connected through an MPC beam constraint to the top of a wide-flange member subjected to sinusoidal base excitation; (b) point-mass absolute acceleration from a built-in elastic material with $\beta=0.005$ and UVC operating in its elastic range with $\beta_R=0.005$.
 
 The plotted responses closely overlap for this example. This comparison illustrates the elastic damping contribution; it does not by itself validate nonlinear cyclic response, every stress-state implementation, or compiler compatibility. The figure is supplied as documentation; a corresponding runnable model, raw response data, and validation slides are not included in this package.
 
@@ -31,7 +31,7 @@ Use Abaqus linked to a compatible Fortran compiler, and make the selected `.for`
 git clone https://github.com/RESSLab-Team/UVC_MatMod.git
 ```
 
-For the damping extension documented here, use the files bundled with this package; cloning the RESSLab reference alone does not establish that it contains these same extensions.
+Use the UMAT files bundled with this package for the input definitions and damping option documented below.
 
 Historical testing of the reference implementation used Abaqus 6.14, Intel Fortran (`ifort`), and Visual Studio Community 2013. Those results do not establish compatibility of this modified package with every later Abaqus/compiler combination. Consult the [compiler notes in the main README](../README.md#abaqus-and-fortran-compiler-compatibility) and the compiler requirements for your installed Abaqus release.
 
@@ -51,7 +51,7 @@ Create a material using **General → User Material → Mechanical**. Enter the 
 
 Each subroutine can run with or without the added stiffness-proportional damping. It determines the mode from the combination of `NPROPS` (number of constants) and `NSTATV` (Depvar). **The four damping constants must be the last four inputs.** They follow all backstress pairs; in `UVCuniaxial_IS.for`, the six geometry and integration-point inputs also precede them.
 
-### Constitutive parameters from the RESSLab version
+### Constitutive parameters
 
 Let $N\geq 1$ be the number of backstresses. Each $C_k$ must be followed by its corresponding $\gamma_k$.
 
@@ -100,9 +100,9 @@ Use $0\leq t^1<t^2$ and nonnegative damping coefficients for the staged damping 
 
 ### Required counts
 
-“Without damping” below means without the added UMAT stiffness-proportional term; mass-proportional damping is configured separately.
+The counts depend on whether the optional UMAT stiffness-proportional damping inputs are included. Mass-proportional damping is configured separately.
 
-| Subroutine | Constants without damping | Depvar without damping | Constants with damping | Depvar with damping |
+| Subroutine | Constants: damping disabled | Depvar: damping disabled | Constants: damping enabled | Depvar: damping enabled |
 |---|---:|---:|---:|---:|
 | Uniaxial | $6+2N$ | $1+N$ | $10+2N$ | $2+N$ |
 | Plane stress | $7+2N$ | $4+3N$ | $11+2N$ | $7+3N$ |
@@ -111,7 +111,7 @@ Use $0\leq t^1<t^2$ and nonnegative damping coefficients for the staged damping 
 
 For **two backstresses** ($N=2$):
 
-| Subroutine | Constants / Depvar without damping | Constants / Depvar with damping | Damping input positions |
+| Subroutine | Constants / Depvar: damping disabled | Constants / Depvar: damping enabled | Damping input positions |
 |---|---:|---:|---|
 | Uniaxial | 10 / 3 | 14 / 4 | 11–14 |
 | Plane stress | 11 / 10 | 15 / 13 | 12–15 |
@@ -119,10 +119,6 @@ For **two backstresses** ($N=2$):
 | Uniaxial with residual stress (`IS`) | 16 / 3 | 20 / 4 | 17–20 |
 
 Do not allocate extra SDVs “just in case”: the code uses the exact Depvar count to identify the input layout and exits if neither layout matches. Supply complete backstress pairs and exactly the required constants. Setting both damping coefficients to zero while retaining all four damping inputs still requires the damping-enabled Depvar count.
-
-![RESSLab UVC parameter order and Depvar for a three-dimensional material with two backstresses](figures/Fig2.jpg)
-
-**Figure 2.** Material setup without the added damping term: 11 constants and Depvar = 19 for the multiaxial case with two backstresses. The displayed material parameters follow the RESSLab version of UVC.
 
 ## 3. Stiffness-proportional damping implementation
 
@@ -152,11 +148,13 @@ For uniaxial response, replace $\mathbf D^{el}$ with $E$. The time-dependent coe
 
 $$
 \beta_R(t)=
-\begin{cases}
-0, & t<t^1,\\
-\beta_R^1, & t^1\leq t<t^2,\\
-\beta_R^2, & t\geq t^2.
-\end{cases}
+\left\{
+\begin{array}{ll}
+0, & t<t_1,\\
+\beta_R^1, & t_1\le t<t_2,\\
+\beta_R^2, & t\ge t_2.
+\end{array}
+\right.
 $$
 
 The implementation stores the constitutive stress $\boldsymbol\sigma_{\mathrm{UVC}}$ in the additional SDVs before adding the damping stress to `STRESS`. The next increment starts from this stored constitutive stress, so the damping stress is not accumulated as plasticity-model stress. Both stress and `DDSDDE` receive the damping contribution. When `DTIME <= 0`, the added damping contribution is skipped.
@@ -173,22 +171,22 @@ The code does not identify whether a step is static or dynamic. A static step th
 
 Under **Mechanical → Damping**, assign the required mass-proportional coefficient $\alpha$ and set the material **Beta field to zero**. Enter $\beta_R^1$ and $\beta_R^2$ only in the User Material constants. Mass-proportional damping is optional; use $\alpha=0$ if it is not required. The UMAT's time switches control only its added stiffness-proportional term, not $\alpha$.
 
-![Damping-enabled material constants and the separate Abaqus mass-proportional damping setting](figures/Fig3.jpg)
+![UVC material constants with optional damping and the Abaqus mass-proportional damping setting](figures/Fig2.jpg)
 
-**Figure 3.** Example with two backstresses and the four damping inputs appended in positions 12–15: $\beta_R^1=0.00472$, $t^1=1$, $\beta_R^2=0.345$, and $t^2=45$. The Abaqus damping dialog shows $\alpha=0.104$ and Beta = 0. For the multiaxial subroutine, this setup requires **Depvar = 25**; for plane stress it requires **13**. The label “Original UVC material parameters” in the supplied image refers to the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**.
+**Figure 2.** UVC material setup with two backstresses and optional damping. The red box encloses the constitutive parameters, followed by the four damping inputs in positions 12–15: $\beta_R^1=0.00472$, $t^1=1$, $\beta_R^2=0.345$, and $t^2=45$. The Abaqus damping dialog shows $\alpha=0.104$ and Beta = 0. For the multiaxial subroutine, this setup requires **Depvar = 25**; for plane stress it requires **13**.
 
-The stress-valued constants in Figure 3 are 100 times those in Figure 2, consistent with converting N/mm² to N/cm². The screenshots therefore illustrate different length units; use one consistent unit system throughout the actual model. The damping coefficients are example values, not a general calibration.
+The stress-valued constants shown in Figure 2 use N/cm². The input-file example below expresses the same constitutive parameters in N/mm², so those values are divided by 100. Use one consistent unit system throughout the actual model. The damping coefficients are example values, not a general calibration.
 
-![Example story drift history showing two total-time thresholds for stiffness-proportional damping](figures/Fig4.jpg)
+![Example story drift history showing two total-time thresholds for stiffness-proportional damping](figures/Fig3.jpg)
 
-**Figure 4.** Illustration of the two damping stages in a moment-resisting frame analysis. The phrase “No damping before $t^1$” in the image refers only to the added **stiffness-proportional** term. A larger second-stage coefficient suppresses free vibration to assist residual-drift evaluation in this example; its value and activation time should be chosen for the intended post-motion analysis.
+**Figure 3.** Illustration of the two damping stages in a moment-resisting frame analysis. The phrase “No damping before $t^1$” in the image refers only to the optional **stiffness-proportional** term. A larger second-stage coefficient suppresses free vibration to assist residual-drift evaluation in this example; its value and activation time should be chosen for the intended post-motion analysis.
 
 ### Input-file example: multiaxial, two backstresses
 
-The following material block uses the stress-valued constants from Figure 2 in N/mm² and the damping values from Figure 3 with time measured in seconds:
+The following UVC material block uses the parameters in Figure 2, with stress-valued constants converted to N/mm² and time measured in seconds:
 
 ```text
-*Material, name=UVC_D
+*Material, name=UVC
 *Damping, alpha=0.104, beta=0.
 *Depvar
 25,
@@ -292,7 +290,7 @@ The integration-point inputs must match the beam section definition. At `TIME(2)
 For two backstresses, the following example uses the constitutive and section values in `Lamarche-1-Beam.inp`, followed by the illustrative damping settings used above:
 
 ```text
-*Material, name=UVC_IS_D
+*Material, name=UVC_IS
 *Damping, alpha=0.104, beta=0.
 *Depvar
 4,
