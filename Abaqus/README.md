@@ -148,13 +148,11 @@ For uniaxial response, replace $\mathbf D^{el}$ with $E$. The time-dependent coe
 
 $$
 \beta_R(t)=
-\left\lbrace
-\begin{array}{ll}
-0, & t<t_1,\\
-\beta_R^1, & t_1\le t<t_2,\\
-\beta_R^2, & t\ge t_2.
-\end{array}
-\right.
+\begin{cases}
+0, & t\lt t_1\cr
+\beta_R^{1}, & t_1\leq t\lt t_2\cr
+\beta_R^{2}, & t\geq t_2
+\end{cases}
 $$
 
 The implementation stores the constitutive stress $\boldsymbol\sigma_{\mathrm{UVC}}$ in the additional SDVs before adding the damping stress to `STRESS`. The next increment starts from this stored constitutive stress, so the damping stress is not accumulated as plasticity-model stress. Both stress and `DDSDDE` receive the damping contribution. When `DTIME <= 0`, the added damping contribution is skipped.
