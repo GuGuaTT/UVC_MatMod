@@ -2,7 +2,7 @@
 
 This directory provides Updated Voce–Chaboche (UVC) user material subroutines for Abaqus/Standard. The constitutive model combines nonlinear isotropic and kinematic hardening to describe structural steels under cyclic loading; see Hartloper et al. (2021).
 
-The implementation is based on the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)** and includes optional, time-dependent stiffness-proportional damping. All four UMATs, including the uniaxial residual-stress variant, provide this damping option within the UVC model.
+The implementation includes optional, time-dependent stiffness-proportional damping. All four UMATs, including the uniaxial residual-stress variant, provide this damping option within the UVC model.
 
 ![Single-degree-of-freedom model and comparison of point-mass absolute acceleration histories](figures/Fig1.jpg)
 
@@ -47,7 +47,9 @@ This assumes `MyModel.inp` and the selected subroutine are in the working direct
 
 ## 2. Material constants and Depvar
 
-Create a material using **General → User Material → Mechanical**. Enter the constants in the order below and set **General → Depvar → Number of solution-dependent state variables** to the exact corresponding count.
+> **Compatibility prerequisite:** The Depvar rules in this section require the compatibility patch described in `FEEDBACK_2026-11-17.md`. The Fortran files in the supplied archive still use exact-count detection for both input layouts; apply that patch before using extra SDVs without damping. This README update does not modify the subroutines.
+
+Create a material using **General → User Material → Mechanical**. Enter the constants in the order below and set **General → Depvar → Number of solution-dependent state variables** to at least the required count without damping, or to the exact required count with damping.
 
 Each subroutine can run with or without the added stiffness-proportional damping. It determines the mode from the combination of `NPROPS` (number of constants) and `NSTATV` (Depvar). **The four damping constants must be the last four inputs.** They follow all backstress pairs; in `UVCuniaxial_IS.for`, the six geometry and integration-point inputs also precede them.
 
@@ -100,9 +102,9 @@ Use $0\leq t^1<t^2$ and nonnegative damping coefficients for the staged damping 
 
 ### Required counts
 
-The counts depend on whether the optional UMAT stiffness-proportional damping inputs are included. Mass-proportional damping is configured separately.
+The number of constants depends on whether the optional UMAT stiffness-proportional damping inputs are included. Without damping, the listed Depvar count is a minimum; with damping, it is an exact requirement. Mass-proportional damping is configured separately.
 
-| Subroutine | Constants: damping disabled | Depvar: damping disabled | Constants: damping enabled | Depvar: damping enabled |
+| Subroutine | Constants: damping disabled | Minimum Depvar: damping disabled | Constants: damping enabled | Depvar: damping enabled |
 |---|---:|---:|---:|---:|
 | Uniaxial | $6+2N$ | $1+N$ | $10+2N$ | $2+N$ |
 | Plane stress | $7+2N$ | $4+3N$ | $11+2N$ | $7+3N$ |
@@ -111,14 +113,16 @@ The counts depend on whether the optional UMAT stiffness-proportional damping in
 
 For **two backstresses** ($N=2$):
 
-| Subroutine | Constants / Depvar: damping disabled | Constants / Depvar: damping enabled | Damping input positions |
+| Subroutine | Constants / minimum Depvar: damping disabled | Constants / Depvar: damping enabled | Damping input positions |
 |---|---:|---:|---|
 | Uniaxial | 10 / 3 | 14 / 4 | 11–14 |
 | Plane stress | 11 / 10 | 15 / 13 | 12–15 |
 | Multiaxial | 11 / 19 | 15 / 25 | 12–15 |
 | Uniaxial with residual stress (`IS`) | 16 / 3 | 20 / 4 | 17–20 |
 
-Do not allocate extra SDVs “just in case”: the code uses the exact Depvar count to identify the input layout and exits if neither layout matches. Supply complete backstress pairs and exactly the required constants. Setting both damping coefficients to zero while retaining all four damping inputs still requires the damping-enabled Depvar count.
+**Extra SDVs are allowed without damping. With damping, Depvar must equal the required count exactly.** Supply complete backstress pairs and exactly the required material constants. Setting both damping coefficients to zero while retaining all four damping inputs still requires the exact damping-enabled Depvar count.
+
+The updated detection first checks whether interpreting the last four constants as damping inputs gives at least one backstress and an exact match to the damping-enabled Depvar count. If so, damping is enabled. Otherwise, the constants are interpreted as input without damping and Depvar must be at least the count required by that interpretation; insufficient allocation causes an error. Do not over-allocate Depvar for a damping input, since it may then be interpreted as input without damping.
 
 ## 3. Stiffness-proportional damping implementation
 
@@ -194,7 +198,7 @@ The following UVC material block uses the parameters in Figure 2, with stress-va
 255.12, 942.18, 3.16, 0.00472, 1., 0.345, 45.
 ```
 
-This is a material-definition example, not a complete dynamic model. Define the model's density and/or point masses, sections, loading, and analysis steps consistently. To use the same multiaxial material without the added damping term, omit the last four constants, set `constants=11`, and set Depvar to 19. For the plane-stress file, the same constant sequence applies but Depvar is 13 with damping or 10 without it. For uniaxial response, omit Poisson's ratio and use the counts in Section 2.
+This is a material-definition example, not a complete dynamic model. Define the model's density and/or point masses, sections, loading, and analysis steps consistently. To use the same multiaxial material without the added damping term, omit the last four constants, set `constants=11`, and set Depvar to at least 19. For the plane-stress file, the same constant sequence applies but Depvar must be exactly 13 with damping or at least 10 without it. For uniaxial response, omit Poisson's ratio and use the counts in Section 2.
 
 ## 4. State variables and stress output
 
@@ -279,9 +283,9 @@ dcl, bf, tf, tw, npt_flange, npt_web,
 beta_R1, t1, beta_R2, t2
 ```
 
-| Mode | Number of constants | Depvar | Counts for two backstresses |
+| Mode | Number of constants | Depvar requirement | Counts for two backstresses |
 |---|---:|---:|---|
-| Without added damping | $12+2N$ | $1+N$ | 16 constants; Depvar = 3 |
+| Without added damping | $12+2N$ | $\geq 1+N$ | 16 constants; Depvar ≥ 3 |
 | With added damping | $16+2N$ | $2+N$ | 20 constants; Depvar = 4 |
 
 The integration-point inputs must match the beam section definition. At `TIME(2) = 0`, the Young residual stress is added to the incoming axial stress. In damping-enabled mode, this combined initial stress initializes the additional stress SDV; subsequent increments use the stored constitutive stress. The residual-stress function receives only its six inputs, excluding the four damping constants.
@@ -299,7 +303,7 @@ For two backstresses, the following example uses the constitutive and section va
 0.00472, 1., 0.345, 45.
 ```
 
-This is a material block; the model still requires compatible section integration, mass, loading, and analysis-step definitions. For this layout, `SDV4` is the constitutive axial stress without the damping term. For the same material without added damping, omit the final four constants and use 16 constants with Depvar = 3.
+This is a material block; the model still requires compatible section integration, mass, loading, and analysis-step definitions. For this layout, `SDV4` is the constitutive axial stress without the damping term. For the same material without added damping, omit the final four constants and use 16 constants with Depvar ≥ 3.
 
 The residual-stress function retains fixed numerical stress coefficients (e.g. 165 and 100, in the reference MPa convention); these also require conversion if another stress unit is used. The uniaxial tolerance guidance in Section 6 applies to both uniaxial variants.
 
@@ -307,21 +311,13 @@ The residual-stress function retains fixed numerical stress coefficients (e.g. 1
 
 ### Existing cyclic examples
 
-The [testing directory](testing/readme.md) retains the reference cyclic input decks. They use the constitutive input layout without the four damping parameters. Some contain extra SDV allocations that must be corrected before use with the current automatic layout detection:
-
-| Input deck | Subroutine | Required Depvar for its active two-backstress material |
-|---|---|---:|
-| `Truss-UMAT-Disp-Cyclic.inp` | `UVCuniaxial.for` | 3 (deck currently specifies 8) |
-| `Truss-UMAT-Force-Cyclic.inp` | `UVCuniaxial.for` | 3 (active `UMAT` material currently specifies 4) |
-| `Shell-Biaxial-UMAT.inp` | `UVCplanestress.for` | 10 (already matches) |
-| `Cube_Cyclic_Disp_UMAT.inp` | `UVCmultiaxial.for` | 19 (deck currently specifies 28) |
-| `Lamarche-1-Beam.inp` | `UVCuniaxial_IS.for` | 3 (deck currently specifies 4) |
+The [testing directory](testing/readme.md) contains five UMAT example decks: `Truss-UMAT-Disp-Cyclic.inp`, `Truss-UMAT-Force-Cyclic.inp`, `Shell-Biaxial-UMAT.inp`, `Cube_Cyclic_Disp_UMAT.inp`, and `Lamarche-1-Beam.inp`. All use input without the four damping constants. With the Depvar compatibility patch described in Section 2, their existing Depvar allocations are accepted, including extra SDVs, so the decks can be used as supplied without editing their Depvar values.
 
 The force-controlled truss deck also contains an unused six-constant `UMAT-Iso-Only` material. The main UMAT requires at least one backstress; that unused material is not a supported zero-backstress example. The separate `Lamarche-1-Beam.inp` example uses `UVCuniaxial_IS.for`.
 
 The input decks have been retained unchanged and have not been rerun in Abaqus for this update. Historical reference-test results are described in the testing README.
 
-The `IS` damping extension was compiled with GNU Fortran 14.2 and checked using a standalone driver with a minimal substitute for `ABA_PARAM.INC`. Checks passed for cyclic response against the supplied undamped `IS` routine, one to three backstresses, flange and web section points, initial residual stress, zero damping coefficients, both damping stages and their switching times, zero time increments, and the added tangent contribution. Invalid Depvar layouts and zero backstresses were also rejected as intended. Abaqus/compiler integration and complete Abaqus analyses remain to be verified separately.
+The `IS` damping extension was compiled with GNU Fortran 14.2 and checked using a standalone driver with a minimal substitute for `ABA_PARAM.INC`. Checks passed for cyclic response against the supplied undamped `IS` routine, one to three backstresses, flange and web section points, initial residual stress, zero damping coefficients, both damping stages and their switching times, zero time increments, and the added tangent contribution. Invalid Depvar layouts and zero backstresses were also rejected as intended. These standalone checks preceded the Depvar compatibility patch. Abaqus/compiler integration and complete Abaqus analyses remain to be verified separately.
 
 ### Source-version note
 

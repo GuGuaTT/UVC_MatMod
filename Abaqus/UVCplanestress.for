@@ -40,7 +40,7 @@ C
       REAL(8), DIMENSION(3) :: strain_plastic, dstran_p,
      1alpha, gamma_diag, alpha_tilde,alpha_tilde_prime,
      2strain, eta, eta_tilde, eta_trial, stress_trial, 
-     3gamma_prime_diag, stress_rel, strain_rate, sigma
+     3gamma_prime_diag, stress_rel, strain_rate, sigma, sigma_old
       REAL(8), DIMENSION(3, 3) :: Q_mat, Q_mat_t, Lambda_P, Lambda_C,
      1elastic_matrix, P_mat, compliance_matrix, ID3
       ! Parameters
@@ -60,19 +60,24 @@ C ----------------------------------------------------------------------C
       ! Without damping: nprops = 7 + 2N,     Depvar = 4 + 3N
       ! With damping:    nprops = 7 + 2N + 4, Depvar = 4 + 3N + 3
       ! (damping constants beta_R1, t1, beta_R2, t2 are the last four).
-      ! The two layouts never give the same Depvar for the same nprops.
-      n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
-      IF (nstatv .EQ. I_ALPHA + ntens * n_backstresses) THEN
-        has_damping = .FALSE.
-      ELSE
-        n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
+      ! Damping layout: Depvar must equal 4 + 3N + 3 exactly. Any other
+      ! Depvar is read as the original layout, which (as before) may
+      ! allocate more SDVs than needed. For the same number of constants
+      ! the damping layout always needs fewer SDVs than the original one,
+      ! so an original input file can never be mistaken for damping.
+      n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
      1  / TERM_PER_BACK
-        IF (nstatv .EQ. I_ALPHA + ntens * (n_backstresses + 1)) THEN
-          has_damping = .TRUE.
-        ELSE
-          PRINT *, "UVCplanestress: Depvar does not match the number",
-     1    " of constants. Use Depvar = 4 + 3N without damping, or",
-     2    " 4 + 3N + 3 with the 4 damping constants at the end."
+      IF ((n_backstresses .GE. 1) .AND.
+     1  (nstatv .EQ. I_ALPHA + ntens * (n_backstresses + 1))) THEN
+        has_damping = .TRUE.
+      ELSE
+        has_damping = .FALSE.
+        n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
+        IF (nstatv .LT. I_ALPHA + ntens * n_backstresses) THEN
+          PRINT *, "UVCplanestress: Depvar too small for the number",
+     1    " of constants. Use Depvar >= 4 + 3N without damping,",
+     2    " or exactly 4 + 3N + 3 with the 4 damping",
+     3    " constants at the end."
           CALL XIT
         END IF
       END IF
@@ -172,9 +177,11 @@ C ----------------------------------------------------------------------C
       strain = stran + dstran
       IF (has_damping) THEN
         ! STRESS includes the damping term, so start from the stored
-        ! undamped stress (the last 3 state variables).
-        stress_trial = statev(nstatv-ntens+1:nstatv) +
-     1  MATMUL(elastic_matrix, dstran)
+        ! undamped stress (the last 3 state variables); SDVs are not
+        ! rotated by Abaqus (NLGEOM)
+        CALL ROTSIG(statev(nstatv-ntens+1), drot, sigma_old, 1, ndi,
+     1  nshr)
+        stress_trial = sigma_old + MATMUL(elastic_matrix, dstran)
       ELSE
         stress_trial = stress + MATMUL(elastic_matrix, dstran)
       END IF
@@ -205,7 +212,7 @@ C ----------------------------------------------------------------------C
       ! Calculate the consitency parameter
       it_num = 0
       consist_param = ZERO
-	  dep_eq = ZERO
+      dep_eq = ZERO
       DO WHILE ((converged .EQ. 0) .AND. (it_num .LT. MAX_ITERATIONS))
         it_num = it_num + 1
 C

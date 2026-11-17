@@ -9,15 +9,15 @@ Material models are provided for a variety of stress states, the implementations
 
 The theory and implementations of the material model are described in detail in the references below.
 
-This package is based on the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**. All four included Abaqus UMATs, including the uniaxial residual-stress variant, support optional time-dependent stiffness-proportional damping. The four damping constants are appended at the end of the input list; for `UVCuniaxial_IS.for`, they follow the six geometry and integration-point inputs. See the [Abaqus README](Abaqus/README.md) for the input order, exact Depvar counts, examples, and figures. The OpenSees implementations are retained from the reference package.
+All four included Abaqus UMATs, including the uniaxial residual-stress variant, support optional time-dependent stiffness-proportional damping. The four damping constants are appended at the end of the input list; for `UVCuniaxial_IS.for`, they follow the six geometry and integration-point inputs. See the [Abaqus README](Abaqus/README.md) for the input order, Depvar requirements, examples, and figures. The OpenSees implementations are retained from the reference package.
 
 ## Changelog
 
-- 17-Nov-2026 (Abaqus damping extension and documentation merge):
-  - Incorporate the supplied damping-capable `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for`. Each file selects its input layout using the numbers of constants and state variables; the damping inputs are `beta_R1, t1, beta_R2, t2` at the end.
-  - Extend `UVCuniaxial_IS.for` with the same optional damping formulation. Preserve the Young residual-stress distribution, initialize the stored constitutive stress with the initial residual stress, and append the damping inputs after the six residual-stress inputs. With two backstresses, use 20 constants and Depvar = 4 with damping, or 16 constants and Depvar = 3 without it.
-  - Merge material setup, damping theory, state-variable output, units, and the four supplied figures into `Abaqus/README.md`. Clarify attribution to the RESSLab version of UVC.
-  - Document Depvar changes needed for the retained legacy input decks. 
+- 17-Nov-2026 (by Tianyu Gu, [@GuGuaTT](https://github.com/GuGuaTT)):
+  - Add optional, time-dependent stiffness-proportional damping to all four Abaqus UMATs. Append `beta_R1, t1, beta_R2, t2` at the end of the material constants and add the corresponding damping contributions to stress and the material Jacobian.
+  - Store the constitutive stress separately from the damping stress. In `UVCuniaxial_IS.for`, preserve the Young residual-stress distribution and initialize the stored stress with the initial residual stress; place the damping inputs after the six geometry and integration-point inputs.
+  - Document the input order, Depvar requirements, state-variable output, units, and damping examples in `Abaqus/README.md`.
+  - Update the documentation for the Depvar compatibility patch: allow extra SDVs without damping, require an exact Depvar count with damping, and retain the existing cyclic input decks without changes.
 - 16-Nov-2026 (by Lucas Kuhn, [@LucasKuhn67](https://github.com/LucasKuhn67)):
   - Abaqus and OpenSees multiaxial: the normal to the yield surface is now recomputed inside the return-mapping loop instead of being fixed at the trial state, following [Suchocki (2022)](https://doi.org/10.1007/s00707-021-03069-3). The consistent tangent is updated accordingly. Thanks to [Claudio M. Perez (@claudioperez)](https://github.com/claudioperez) for pointing this out.
   - Abaqus plane stress, uniaxial and uniaxial_IS, and OpenSees: the backstress update uses the plastic strain increment directly, fixing a rounding issue in the equivalent plastic strain.

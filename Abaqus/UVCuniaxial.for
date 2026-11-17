@@ -45,19 +45,24 @@ C-----------------------------------------------------------------------C
       ! Without damping: nprops = 6 + 2N,     Depvar = 1 + N
       ! With damping:    nprops = 6 + 2N + 4, Depvar = 1 + N + 1
       ! (damping constants beta_R1, t1, beta_R2, t2 are the last four).
-      ! The two layouts never give the same Depvar for the same nprops.
-      n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
-      IF (nstatv .EQ. 1 + n_backstresses) THEN
-        has_damping = .FALSE.
-      ELSE
-        n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
+      ! Damping layout: Depvar must equal 1 + N + 1 exactly. Any other
+      ! Depvar is read as the original layout, which (as before) may
+      ! allocate more SDVs than needed. For the same number of constants
+      ! the damping layout always needs fewer SDVs than the original one,
+      ! so an original input file can never be mistaken for damping.
+      n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
      1  / TERM_PER_BACK
-        IF (nstatv .EQ. 1 + (n_backstresses + 1)) THEN
-          has_damping = .TRUE.
-        ELSE
-          PRINT *, "UVCuniaxial: Depvar does not match the number of",
-     1    " constants. Use Depvar = 1 + N without damping, or",
-     2    " 1 + N + 1 with the 4 damping constants at the end."
+      IF ((n_backstresses .GE. 1) .AND.
+     1  (nstatv .EQ. 1 + (n_backstresses + 1))) THEN
+        has_damping = .TRUE.
+      ELSE
+        has_damping = .FALSE.
+        n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
+        IF (nstatv .LT. 1 + n_backstresses) THEN
+          PRINT *, "UVCuniaxial: Depvar too small for the number",
+     1    " of constants. Use Depvar >= 1 + N without damping,",
+     2    " or exactly 1 + N + 1 with the 4 damping",
+     3    " constants at the end."
           CALL XIT
         END IF
       END IF
