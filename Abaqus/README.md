@@ -148,7 +148,7 @@ For uniaxial response, replace $\mathbf D^{el}$ with $E$. The time-dependent coe
 
 $$
 \beta_R(t)=
-\left\{
+\left\lbrace
 \begin{array}{ll}
 0, & t<t_1,\\
 \beta_R^1, & t_1\le t<t_2,\\
