@@ -2,15 +2,22 @@
 
 This is the repository for an updated Voce-Chaboche (UVC) material model to model structural steel materials.
 
-The UVC material model combines the nonlinear kinematic hardening rule of Chaboche with an refined formulation of the nonlinear isotropic hardening law of Voce.
+The UVC material model combines the nonlinear kinematic hardening rule of Chaboche with a refined formulation of the nonlinear isotropic hardening law of Voce.
 This constitutive model is intended to be used for structural steels subjected to cyclic loading.
 Notably, accounting for the discontinuous yielding phenomenon is shown to influence the buckling modes of steel wide-flange columns subjected to multi-axis cyclic loading.
 Material models are provided for a variety of stress states, the implementations are shown to have similar, if not better, efficiency in terms of model convergence than the built-in nonlinear isotropic/kinematic model in Abaqus.
 
 The theory and implementations of the material model are described in detail in the references below.
 
+This package is based on the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**. All four included Abaqus UMATs, including the uniaxial residual-stress variant, support optional time-dependent stiffness-proportional damping. The four damping constants are appended at the end of the input list; for `UVCuniaxial_IS.for`, they follow the six geometry and integration-point inputs. See the [Abaqus README](Abaqus/README.md) for the input order, exact Depvar counts, examples, and figures. The OpenSees implementations are retained from the reference package.
+
 ## Changelog
 
+- 17-Nov-2026 (Abaqus damping extension and documentation merge):
+  - Incorporate the [README.md](Abaqus/README.md)supplied damping-capable `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for`. Each file selects its input layout using the numbers of constants and state variables; the damping inputs are `beta_R1, t1, beta_R2, t2` at the end.
+  - Extend `UVCuniaxial_IS.for` with the same optional damping formulation. Preserve the Young residual-stress distribution, initialize the stored constitutive stress with the initial residual stress, and append the damping inputs after the six residual-stress inputs. With two backstresses, use 20 constants and Depvar = 4 with damping, or 16 constants and Depvar = 3 without it.
+  - Merge material setup, damping theory, state-variable output, units, and the four supplied figures into `Abaqus/README.md`. Clarify attribution to the RESSLab version of UVC.
+  - Document Depvar changes needed for the retained legacy input decks. 
 - 16-Nov-2026 (by Lucas Kuhn, [@LucasKuhn67](https://github.com/LucasKuhn67)):
   - Abaqus and OpenSees multiaxial: the normal to the yield surface is now recomputed inside the return-mapping loop instead of being fixed at the trial state, following [Suchocki (2022)](https://doi.org/10.1007/s00707-021-03069-3). The consistent tangent is updated accordingly. Thanks to [Claudio M. Perez (@claudioperez)](https://github.com/claudioperez) for pointing this out.
   - Abaqus plane stress, uniaxial and uniaxial_IS, and OpenSees: the backstress update uses the plastic strain increment directly, fixing a rounding issue in the equivalent plastic strain.
@@ -27,27 +34,27 @@ The theory and implementations of the material model are described in detail in 
 ## Installation
 
 Instructions for installation are specific to the choice of simulation platform.
-Detailed instructions are provided in each of the Abaqus and OpenSees directories. 
+Detailed instructions are provided in the [Abaqus](Abaqus/README.md) and [OpenSees](OpenSees/README.md) directories. 
 
 ## Usage
 
 Specific instructions for use are provided in each of the Abaqus and OpenSees directories.
 The examples used to validate the implementations are provided in both the `Abaqus/testing` and `OpenSees/testing` directories.
 
-Material paramters can be found on the OpenSees wiki at https://opensees.berkeley.edu/wiki/index.php/UVCuniaxial_(Updated_Voce-Chaboche)
+Material parameters can be found on the OpenSees wiki at https://opensees.berkeley.edu/wiki/index.php/UVCuniaxial_(Updated_Voce-Chaboche)
 
-### Abaqus 2019 and later with Intel oneAPI
+### Abaqus and Fortran compiler compatibility
 
-(Noted 15 September 2022) Note that the Abaqus UVC UMATs are not compatible in their current form with the Intel Fortran Compiler in oneAPI and recent versions of Abaqus.
-The problem is that "allocatable arrays" used to hold a variable number of backstresses no longer appear to be supported.
-This issue can be overcome by modifying the use of the allocatable arrays to be of a constant size.
-For example, assuming two (2) backstresses, by changing the lines 27-28 in UVCuniaxial.for:
+The reference README recorded compatibility reports on 15 September 2022 concerning allocatable backstress arrays with some Abaqus/Intel oneAPI configurations. These historical reports are not a compatibility verdict for all later releases. Use the compiler/toolchain supported by your installed Abaqus release and verify the selected user subroutine locally.
+
+The workaround documented at that time was to replace the relevant allocatable backstress arrays with fixed-size arrays and remove their corresponding `ALLOCATE` statements. For example, for exactly two backstresses, the uniaxial declarations become:
+
+```fortran
+      REAL(8), DIMENSION(2, 2) :: chab_coef
+      REAL(8), DIMENSION(2) :: alpha_k, alpha_k_init
 ```
-27      REAL, DIMENSION(2, 2) :: chab_coef
-28      REAL, DIMENSION(2) :: alpha_k, alpha_k_init
-```
-and deleting lines 47-49.
-UVCplanestress.for and UVCmultiaxial.for can be similarly modified.
+
+If that workaround is required by the local configuration, remove only the matching allocation statements and keep the input backstress count consistent with the fixed array sizes. Other subroutines require corresponding changes to their own arrays. The supplied files retain allocatable arrays; no compiler-specific modifications were made in this documentation update.
 
 ## Contributing
 

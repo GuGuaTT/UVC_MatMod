@@ -17,9 +17,12 @@ C
 C
       ! Subroutine control
       INTEGER :: i, j, n_backstresses, it_num, converged, ind_alpha
+      LOGICAL :: has_damping
       ! Material properties
       REAL(8) :: elastic_modulus, Q_inf, b, D_inf, a,
      1shear_modulus, bulk_modulus, poission_ratio, mu2, lame_first
+      ! Optional stiffness-proportional damping (last 4 constants)
+      REAL(8) :: beta_r1, start_time1, beta_r2, start_time2
       ! Used for intermediate calculations
       REAL(8) :: yield_stress, ep_eq, ep_eq_init, a_temp,
      1hard_iso_Q, hard_iso_D, hard_iso_total, a_dot_n,
@@ -37,23 +40,41 @@ C
       REAL(8), DIMENSION(6) :: strain_tens, strain_plastic,
      1yield_normal, alpha, strain_trial, stress_relative,
      2stress_dev, ID2, stress_tens, check, dstran_tens, alpha_diff,
-     3alpha_upd, dpe, d_vec
+     3alpha_upd, dpe, d_vec, sigma, strain_rate, sigma_old
       ! Parameters
       INTEGER :: N_BASIC_PROPS, TERM_PER_BACK, MAX_ITERATIONS,
-     1I_ALPHA
+     1I_ALPHA, N_DAMP_PROPS
       REAL(8) :: TOL, ONE, TWO, THREE, ZERO, SQRT23
       PARAMETER(TOL=1.0D-10,
      1N_BASIC_PROPS=7, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
      2ONE=1.0D0, TWO=2.0D0, THREE=3.0D0, ZERO=0.D0,
-     3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=7)
+     3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=7, N_DAMP_PROPS=4)
 C ----------------------------------------------------------------------C
 C
       ! Subroutine start
 C
 C ----------------------------------------------------------------------C
-      ! Get the number of backstresses
+      ! Get the number of backstresses and detect the input layout.
+      ! Without damping: nprops = 7 + 2N,     Depvar = 7 + 6N
+      ! With damping:    nprops = 7 + 2N + 4, Depvar = 7 + 6N + 6
+      ! (damping constants beta_R1, t1, beta_R2, t2 are the last four).
+      ! The two layouts never give the same Depvar for the same nprops.
       n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
-      IF (n_backstresses .EQ. 0) THEN
+      IF (nstatv .EQ. I_ALPHA + ntens * n_backstresses) THEN
+        has_damping = .FALSE.
+      ELSE
+        n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
+     1  / TERM_PER_BACK
+        IF (nstatv .EQ. I_ALPHA + ntens * (n_backstresses + 1)) THEN
+          has_damping = .TRUE.
+        ELSE
+          PRINT *, "UVCmultiaxial: Depvar does not match the number of",
+     1    " constants. Use Depvar = 7 + 6N without damping, or",
+     2    " 7 + 6N + 6 with the 4 damping constants at the end."
+          CALL XIT
+        END IF
+      END IF
+      IF (n_backstresses .LE. 0) THEN
         PRINT *, "No backstresses defined, exiting!"
         CALL XIT  ! Exit from analysis command in Abaqus
       END IF
@@ -79,6 +100,7 @@ C
       ! 1               = Equivalent plastic strain
       ! 2 - 7           = Plastic strain
       ! 8 - 8 + 6 * N   = Backstress components
+      ! last 6          = Undamped stress (only with damping)
       ep_eq = statev(1)
       ep_eq_init = statev(1)
       CALL ROTSIG(statev(2), drot, strain_plastic, 2, ndi, nshr)
@@ -97,6 +119,12 @@ C
       b = props(5)
       d_inf = props(6)
       a = props(7)
+      IF (has_damping) THEN
+        beta_r1 = props(nprops - 3)
+        start_time1 = props(nprops - 2)
+        beta_r2 = props(nprops - 1)
+        start_time2 = props(nprops)
+      END IF
       DO i = 1, n_backstresses  ! First backstress starts at index = 8
         c_k(i) = props((N_BASIC_PROPS - 1) + 2 * i)
         gamma_k(i) = props(N_BASIC_PROPS + 2 * i)
@@ -125,7 +153,15 @@ C ----------------------------------------------------------------------C
         END DO
       END DO
       ! Stress tensor
-      stress_tens = stress + MATMUL(c_mat, dstran)
+      IF (has_damping) THEN
+        ! STRESS includes the damping term, so start from the stored
+        ! undamped stress; SDVs are not rotated by Abaqus (NLGEOM)
+        CALL ROTSIG(statev(nstatv-ntens+1), drot, sigma_old, 1, ndi,
+     1  nshr)
+        stress_tens = sigma_old + MATMUL(c_mat, dstran)
+      ELSE
+        stress_tens = stress + MATMUL(c_mat, dstran)
+      END IF
 C
       stress_hydro = SUM(stress_tens(1:3)) / THREE
       strain_trace = SUM(strain_tens(1:3))
@@ -225,12 +261,12 @@ C
 C
 C ----------------------------------------------------------------------C
       IF (it_num .EQ. 0) THEN  ! Elastic loading
-        stress = stress_tens
+        sigma = stress_tens
       ELSE  ! Plastic loading
         dpe = plastic_mult * yield_normal
         dpe(4:6) = dpe(4:6) + plastic_mult * yield_normal(4:6)
         strain_plastic = strain_plastic + dpe
-        stress = stress_tens - MATMUL(c_mat, dpe)
+        sigma = stress_tens - MATMUL(c_mat, dpe)
 C
         alpha(:) = ZERO
         d_vec(:) = ZERO
@@ -273,6 +309,23 @@ C     Tangent modulus
           END DO
         END DO
         ddsdde = ONE/TWO * (TRANSPOSE(ddsdde) + ddsdde)
+      END IF
+C
+      stress = sigma
+      IF (has_damping) THEN
+        ! Store the undamped stress, then add beta_R * D_el * strain rate
+        statev(nstatv-ntens+1:nstatv) = sigma
+        IF (dtime .GT. ZERO) THEN
+          strain_rate = dstran / dtime
+          IF ((time(2) .GE. start_time1) .AND.
+     1      (time(2) .LT. start_time2)) THEN
+            stress = stress + beta_r1 * MATMUL(c_mat, strain_rate)
+            ddsdde = ddsdde + beta_r1 * c_mat / dtime
+          ELSE IF (time(2) .GE. start_time2) THEN
+            stress = stress + beta_r2 * MATMUL(c_mat, strain_rate)
+            ddsdde = ddsdde + beta_r2 * c_mat / dtime
+          END IF
+        END IF
       END IF
 C ----------------------------------------------------------------------C
 C

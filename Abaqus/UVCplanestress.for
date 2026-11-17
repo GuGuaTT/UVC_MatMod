@@ -17,9 +17,12 @@ C
 C
       ! Subroutine control
       INTEGER :: i, j, n_backstresses, it_num, converged
+      LOGICAL :: has_damping
       ! Material properties
       REAL(8) :: elastic_modulus, Q_inf, b, D_inf, a,
      1shear_modulus, bulk_modulus, poisson_ratio, mu2
+      ! Optional stiffness-proportional damping (last 4 constants)
+      REAL(8) :: beta_r1, start_time1, beta_r2, start_time2
       ! Used for intermediate calculations
       REAL(8) :: yield_stress, ep_eq, ep_eq_init,
      1hard_iso_Q, hard_iso_D, hard_iso_total, isotropic_modulus,
@@ -36,27 +39,45 @@ C
       ! Tensors
       REAL(8), DIMENSION(3) :: strain_plastic, dstran_p,
      1alpha, gamma_diag, alpha_tilde,alpha_tilde_prime,
-     2strain, eta, eta_tilde, eta_trial, stress_trial,
-     3gamma_prime_diag, stress_rel
+     2strain, eta, eta_tilde, eta_trial, stress_trial, 
+     3gamma_prime_diag, stress_rel, strain_rate, sigma
       REAL(8), DIMENSION(3, 3) :: Q_mat, Q_mat_t, Lambda_P, Lambda_C,
      1elastic_matrix, P_mat, compliance_matrix, ID3
       ! Parameters
       INTEGER :: N_BASIC_PROPS, TERM_PER_BACK, MAX_ITERATIONS,
-     1I_ALPHA
+     1I_ALPHA, N_DAMP_PROPS
       REAL(8) :: TOL, ONE, TWO, THREE, ZERO, SQRT23, SIX
       PARAMETER(TOL=1.0D-8,
      1N_BASIC_PROPS=7, TERM_PER_BACK=2, MAX_ITERATIONS=1000,
      2ONE=1.0D0, TWO=2.0D0, THREE=3.0D0, ZERO=0.D0, SIX=6.0D0,
-     3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=4)
+     3SQRT23=SQRT(2.0D0/3.0D0), I_ALPHA=4, N_DAMP_PROPS=4)
 C ----------------------------------------------------------------------C
 C
       ! Initialize
 C
 C ----------------------------------------------------------------------C
-      ! Get the number of backstresses
+      ! Get the number of backstresses and detect the input layout.
+      ! Without damping: nprops = 7 + 2N,     Depvar = 4 + 3N
+      ! With damping:    nprops = 7 + 2N + 4, Depvar = 4 + 3N + 3
+      ! (damping constants beta_R1, t1, beta_R2, t2 are the last four).
+      ! The two layouts never give the same Depvar for the same nprops.
       n_backstresses = (nprops - N_BASIC_PROPS) / TERM_PER_BACK
-      IF (n_backstresses .EQ. 0) THEN
-      PRINT *, "No backstresses defined, exiting!"
+      IF (nstatv .EQ. I_ALPHA + ntens * n_backstresses) THEN
+        has_damping = .FALSE.
+      ELSE
+        n_backstresses = (nprops - N_BASIC_PROPS - N_DAMP_PROPS)
+     1  / TERM_PER_BACK
+        IF (nstatv .EQ. I_ALPHA + ntens * (n_backstresses + 1)) THEN
+          has_damping = .TRUE.
+        ELSE
+          PRINT *, "UVCplanestress: Depvar does not match the number",
+     1    " of constants. Use Depvar = 4 + 3N without damping, or",
+     2    " 4 + 3N + 3 with the 4 damping constants at the end."
+          CALL XIT
+        END IF
+      END IF
+      IF (n_backstresses .LE. 0) THEN
+        PRINT *, "No backstresses defined, exiting!"
         CALL XIT  ! Exit from analysis command in Abaqus
       END IF
 C
@@ -66,7 +87,7 @@ C
       ALLOCATE(alpha_k(n_backstresses, ntens))
       ALLOCATE(alpha_k_i(n_backstresses, ntens))
 C
-      ! Material Properties
+      ! Read in the material properties
       elastic_modulus = props(1)
       poisson_ratio = props(2)
       yield_stress = props(3)
@@ -74,6 +95,12 @@ C
       b = props(5)
       d_inf = props(6)
       a = props(7)
+      IF (has_damping) THEN
+        beta_r1 = props(nprops - 3)
+        start_time1 = props(nprops - 2)
+        beta_r2 = props(nprops - 1)
+        start_time2 = props(nprops)
+      END IF
       DO i = 1, n_backstresses  ! First backstress starts at index = 8
         c_k(i) = props((N_BASIC_PROPS - 1) + 2 * i)
         gamma_k(i) = props(N_BASIC_PROPS + 2 * i)
@@ -115,6 +142,10 @@ C
       Lambda_C(3, 3) = shear_modulus
 C
       ! Read state variables
+      ! 1               = Equivalent plastic strain
+      ! 2 - 4           = Plastic strain
+      ! 5 - 4 + 3 * N   = Backstress components
+      ! last 3          = Undamped stress (only with damping)
       ep_eq = statev(1)
       ep_eq_init = statev(1)
       CALL ROTSIG(statev(2), drot, strain_plastic, 2, ndi, nshr)
@@ -139,8 +170,14 @@ C
 C ----------------------------------------------------------------------C
       ! Don't include e33, and calculate it later
       strain = stran + dstran
-      stress_trial = stress + MATMUL(elastic_matrix, dstran)
-      !stress_trial = MATMUL(elastic_matrix, strain - strain_plastic)
+      IF (has_damping) THEN
+        ! STRESS includes the damping term, so start from the stored
+        ! undamped stress (the last 3 state variables).
+        stress_trial = statev(nstatv-ntens+1:nstatv) +
+     1  MATMUL(elastic_matrix, dstran)
+      ELSE
+        stress_trial = stress + MATMUL(elastic_matrix, dstran)
+      END IF
 C
       hard_iso_Q = q_inf * (ONE - EXP(-b * ep_eq))
       hard_iso_D = d_inf * (ONE - EXP(-a * ep_eq))
@@ -168,7 +205,7 @@ C ----------------------------------------------------------------------C
       ! Calculate the consitency parameter
       it_num = 0
       consist_param = ZERO
-      dep_eq = ZERO
+	  dep_eq = ZERO
       DO WHILE ((converged .EQ. 0) .AND. (it_num .LT. MAX_ITERATIONS))
         it_num = it_num + 1
 C
@@ -244,7 +281,7 @@ C
 C
 C ----------------------------------------------------------------------C
       IF (it_num .EQ. 0) THEN  ! Elastic loading
-        stress = stress_trial
+        sigma = stress_trial
         ddsdde = elastic_matrix
       ELSE  ! Plastic loading
         eta_tilde = eta_trial + MATMUL(Q_mat_t, alpha_tilde)
@@ -266,7 +303,7 @@ C     1  + consist_param * MATMUL(P_mat, stress_rel)
 C        stress = MATMUL(elastic_matrix, strain - strain_plastic)
         dstran_p = consist_param * MATMUL(P_mat, stress_rel)
         strain_plastic = strain_plastic + dstran_p
-        stress = stress_trial - MATMUL(elastic_matrix, dstran_p)
+        sigma = stress_trial - MATMUL(elastic_matrix, dstran_p)
       END IF
 C ----------------------------------------------------------------------C
 C
@@ -313,6 +350,25 @@ C
 C
         ddsdde = ONE/TWO * (C_ep + TRANSPOSE(C_ep))
         END IF
+C
+      stress = sigma
+      IF (has_damping) THEN
+        ! Store the undamped stress, then add beta_R * D_el * strain rate
+        statev(nstatv-ntens+1:nstatv) = sigma
+        IF (dtime .GT. ZERO) THEN
+          strain_rate = dstran / dtime
+          IF ((time(2) .GE. start_time1) .AND.
+     1      (time(2) .LT. start_time2)) THEN
+            stress = stress +
+     1      beta_r1 * MATMUL(elastic_matrix, strain_rate)
+            ddsdde = ddsdde + beta_r1 * elastic_matrix / dtime
+          ELSE IF (time(2) .GE. start_time2) THEN
+            stress = stress +
+     1      beta_r2 * MATMUL(elastic_matrix, strain_rate)
+            ddsdde = ddsdde + beta_r2 * elastic_matrix / dtime
+          END IF
+        END IF
+      END IF
 C ----------------------------------------------------------------------C
 C
       ! Update the state variables

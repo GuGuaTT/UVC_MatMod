@@ -1,240 +1,346 @@
-# Fortran User Materials for the UVC Material Model
+# UVC Material Model for Abaqus with Optional Stiffness-Proportional Damping
 
-This readme file outlines the usage of the UVC material model in Abaqus (previously RESSForLab).
+This directory provides Updated Voce–Chaboche (UVC) user material subroutines for Abaqus/Standard. The constitutive model combines nonlinear isotropic and kinematic hardening to describe structural steels under cyclic loading; see Hartloper et al. (2021).
 
-## Installation
+The reference implementation is the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**. All four UMATs supplied here extend that implementation with optional, time-dependent stiffness-proportional damping, including the uniaxial residual-stress variant. In this document, **UVC-D** denotes the damping-enabled mode of these files. It does not denote a separate set of `-D.for` files.
 
-### Prerequisites
+![Single-degree-of-freedom model and comparison of point-mass absolute acceleration histories](figures/Fig1.jpg)
 
-- Compatible version of Abaqus linked with the Fortran compiler
-- Local copy of the user subroutine file of interest (i.e., the files included in this repository)
+**Figure 1.** Supplied elastic-response comparison: (a) a point mass connected through an MPC beam constraint to the top of a wide-flange member subjected to sinusoidal base excitation; (b) point-mass absolute acceleration from a built-in elastic material with $\beta=0.005$ and the modified UVC implementation operating in its elastic range with $\beta_R=0.005$.
 
-Note: all testing for the UMATs have been done with Abaqus v6.14, the Intel Fortran compiler (ifort), and Visual Studio Community 2013.
-The user is responsible for correctly linking Abaqus with a compatible Fortran compiler.
+The plotted responses closely overlap for this example. This comparison illustrates the elastic damping contribution; it does not by itself validate nonlinear cyclic response, every stress-state implementation, or compiler compatibility. The figure is supplied as documentation; a corresponding runnable model, raw response data, and validation slides are not included in this package.
 
-### Obtaining the UMAT files 
+**Contents:** [Installation](#1-files-and-installation) · [Inputs and Depvar](#2-material-constants-and-depvar) · [Damping](#3-stiffness-proportional-damping-implementation) · [Output](#4-state-variables-and-stress-output) · [Sections](#5-beam-and-shell-sections-hourglass-control) · [Units](#6-units-and-convergence-tolerances) · [Residual stress](#7-separate-uniaxial-residual-stress-variant) · [Examples](#8-examples-and-verification)
 
-The user material subroutine (UMAT) files simply need to be downloaded and made available to the Abaqus model of interest.
-All the relevant steps are described in the Usage section.
-The UMAT files can be downloaded individually from github, or the entire repository can be cloned using git using the command line.
+## 1. Files and installation
 
-The git command to clone the repository is:
-```
-git clone https://github.com/ahartloper/UVC_MatMod.git
-```
-Alternatively ssh can be used instead of https when cloning the repository.
-Use of the UMAT files are described in the next section.
+| Subroutine | Intended stress state | Optional damping |
+|---|---|---|
+| [UVCuniaxial.for](UVCuniaxial.for) | Uniaxial response, e.g. trusses and beam axial/flexural response | Yes |
+| [UVCplanestress.for](UVCplanestress.for) | Plane stress, e.g. conventional shells | Yes |
+| [UVCmultiaxial.for](UVCmultiaxial.for) | Three-dimensional solids, with six stress components | Yes |
+| [UVCuniaxial_IS.for](UVCuniaxial_IS.for) | Uniaxial response with the Young (1972) residual stress distribution for I-shaped sections | Yes; input layout in Section 7 |
 
-## Usage
+These are `UMAT` subroutines for Abaqus/Standard, not `VUMAT` subroutines for Abaqus/Explicit. The damping extension is intended for time-domain analysis. Use the subroutine corresponding to the element's stress state; the multiaxial implementation is not a four-component plane-strain implementation.
 
-This section outlines the usage with Abaqus CAE.
-Usage directly with an input file is similar and the reader is instructed to \*USER MATERIAL of the Abaqus Keyword Reference Guide for more information.
-Usage is divided into parts depending on the UMAT file used, generally the steps are: 1) collect the model parameters, 2) set-up the user material, 3) optionally specify the transverse shear stiffness and the hourglass control, 4) make the UMAT file available to Abaqus.
-The number of parameters to be specified depends on whether you are using the uniaxial version, or the plane-stress/multiaxial version.
-Enhanced hourglass control is recommended for reduced integration elements, and the transverse shear stiffness needs to be calculated and specified if shell elements are used.
-Details of how to calculate and specify the transverse shear stiffness for shell elements are summarized under the UVCplanestress section.
+### Prerequisites and source files
 
-See [here](https://github.com/ahartloper/UVC_MatMod/blob/master/README.md#abaqus-2019-and-later-with-intel-oneapi) for using more recent version of Abaqus and the Intel oneAPI Fortran compiler.
+Use Abaqus linked to a compatible Fortran compiler, and make the selected `.for` file available to the job. The RESSLab reference repository can be obtained with:
 
-### UVCuniaxial
-
-This UMAT (UVCuniaxial.for) should be used in elements with uniaxial stress states (e.g., beam elements).
-An alternative uniaxial version, `UVCuniaxial_IS.for`, is also provided.
-This alternative UMAT implements the Young (1972) residual stress distribution for I-shaped sections.
-
-#### Parameters
-- E: Young's modulus of the material
-- sy0: Initial yield stress
-- QInf: Maximum increase in yield stress due to cyclic hardening at model saturation 
-- b: Saturation rate of QInf
-- DInf: Maximum initial reduction in yield surface for materials with discontinuous yielding (set to 0.0 to neglect this effect)
-- a: Saturation rate of DInf, this parameter should be non-zero
-- C1: Increase in stress due to kinematic hardening at saturation for backstress 1
-- gamma1: Rate term for backstress 1
-- [C2 gamma2 C3 gamma3 ... CN gammaN] Additional backstress parameters, if CK is specified then the corresponding gammaK must also be specified. 
-N is the total number of backstress in the model.
-
-#### (Optional) Additional parameters required when using UVCuniaxial_IS
-The following values need to be specified in addition to the material parameters above only when the UVCuniaxial_IS.for UMAT is used:
-- dcl: flange-to-flange centerline depth of the section (d - tf)
-- bf: flange width
-- tf: flange thickness
-- tw: web thickness
-- npt_flange: number of integration points on each flange (Abaqus default is 5)
-- npt_web: number of integration points along the web (Abaqus default is 5)
-
-#### Set-up the user defined material
-
-- Create a user defined material, specify that the type is "Mechanical":
-```
-General > User Material
-```
-- Set the number of parameters to be 8 + 2(N - 1).
-For example, there should be 10 parameters for 2 backstresses.
-When using UVCuniaxial_IS, the number of parameters will be 8 + (2N - 1) + 6.
-- Enter the parameters following the order listed in this Parameters section
-- Assign space for the internal variables:
-```
-General > Depvar
-```
-Set the "Number of solution-dependent state variables" to 1 + N.
-For example, for two backstresses the value should be 3.
-
-Now the user material can be assigned to sections as any material included with Abaqus.
-
-#### Transverse shear stiffness
-
-The transverse shear stiffness needs to be assigned to beam elements when UMATs are used for these sections.
-- Calculate the transverse shear stiffness value according to
-```
-K13 = K23 = k * (A * G)
-```
-where A is the total area of the beam section, G = E / (2(1 + nu)) is the shear modulus and k is a correction factor.
-For I shaped sections the correction factor is k = 0.44. Factors for other cross-sections are listed in Section 29.3.3 of the Abaqus Analysis User's Guide.
-- Set the transverse shear stiffness as follows:
-```
-Sections > Edit Section > Stiffness tab > check Specify Transverse Shear
-```
-- Set the values in the boxes according to the calculated values
-
-#### Make the UMAT available to Abaqus
-
-Now that the user material and model is properly set-up, we just need to make the UMAT file available to Abaqus.
-- Specify the UMAT file
-```
-Double-click on the associated Job > General tab > Locate the User subroutine file
+```bash
+git clone https://github.com/RESSLab-Team/UVC_MatMod.git
 ```
 
-#### Order of the state variables
+For the damping extension documented here, use the files bundled with this package; cloning the RESSLab reference alone does not establish that it contains these same extensions.
 
-The equivalent plastic strain (PEEQ), plastic strain, and backstress vector can be output using `SDV, Solution dependent state variables` field output.
-The number of SDVs depends on the model considered (e.g., UVCuniaxial or UVCplanestress) and the number of backstresses.
-For UVCuniaxial:
-- SDV(1) = equivalent plastic strain
-- SDV(1+k) = value of backstress component k
+Historical testing of the reference implementation used Abaqus 6.14, Intel Fortran (`ifort`), and Visual Studio Community 2013. Those results do not establish compatibility of this modified package with every later Abaqus/compiler combination. Consult the [compiler notes in the main README](../README.md#abaqus-and-fortran-compiler-compatibility) and the compiler requirements for your installed Abaqus release.
 
-### UVCplanestress
+### Selecting a subroutine
 
-This UMAT (UVCplanestress.for) should be used in elements with plane-stress stress states (e.g., shell elements).
+In Abaqus/CAE, open the job editor and select the file under **General → User subroutine file**. For a command-line run, for example:
 
-#### Parameters
-- E: Young's modulus of the material
-- nu: Poisson's ratio
-- sy0: Initial yield stress
-- QInf: Maximum increase in yield stress due to cyclic hardening at model saturation 
-- b: Saturation rate of QInf
-- DInf: Maximum initial reduction in yield surface for materials with discontinuous yielding (set to 0.0 to neglect this effect)
-- a: Saturation rate of DInf, this parameter should be non-zero
-- C1: Increase in stress due to kinematic hardening at saturation for backstress 1
-- gamma1: Rate term for backstress 1
-- [C2 gamma2 C3 gamma3 ... CN gammaN] Optional, additional backstress parameters, if CK is specified then the corresponding gammaK must also be specified.
-N is the total number of backstress in the model.
-
-#### Set-up the user defined material
-
-- Create a user defined material, specify that the type is "Mechanical":
-```
-General > User Material
-```
-- Set the number of parameters to be 9 + 2(N - 1).
-For example, there should be 11 parameters for 2 backstresses.
-- Enter the parameters following the order listed in this Parameters section
-- Assign space for the internal variables:
-```
-General > Depvar
-```
-Set the "Number of solution-dependent state variables" to 4 + 3N.
-For example, for two backstresses the value should be 10.
-
-Now the user material can be assigned to sections as any material included with Abaqus.
-For shell elements, the transverse shear stiffness needs to be assigned to the section as described in the next section.
-
-#### Transverse shear stiffness
-
-The transverse shear stiffness needs to be assigned to shell elements when UMATs are used for these sections.
-- Calculate the transverse shear stiffness value according to
-```
-K11 = K22 = 5/6 G * t
-```
-where G = E / (2(1 + nu)) is the shear modulus and t is the shell section thickness, and
-``` 
-K12 = 0
-```
-- Set the transverse shear stiffness as follows:
-```
-Sections > Edit Section > Advanced tab > check Specify Values under Transverse Shear Stiffnesses
-```
-- Set the values in the boxes according to the calculated values
-
-#### Specify enhanced hourglass control
-
-We recommend that enhanced hourglass control is specified for reduced integration elements (e.g., S4R, C3D8R).
-If you are not using reduced integration elements this section can be ignored.
-
-- Specify enhanced hourglass control for all elements that will be assigned the UMAT
-```
-Go to Element Type > choose Hourglass Control > check Enhanced
+```bash
+abaqus job=MyModel user=UVCmultiaxial.for interactive
 ```
 
-#### Make the UMAT available to Abaqus
+This assumes `MyModel.inp` and the selected subroutine are in the working directory. Each file defines `UMAT`; select one appropriate file per job.
 
-Follow the directions under Make the UMAT available to Abaqus section under UVCuniaxial.
+## 2. Material constants and Depvar
 
+Create a material using **General → User Material → Mechanical**. Enter the constants in the order below and set **General → Depvar → Number of solution-dependent state variables** to the exact corresponding count.
 
-#### Order of the state variables
+Each subroutine can run with or without the added stiffness-proportional damping. It determines the mode from the combination of `NPROPS` (number of constants) and `NSTATV` (Depvar). **The four damping constants must be the last four inputs.** They follow all backstress pairs; in `UVCuniaxial_IS.for`, the six geometry and integration-point inputs also precede them.
 
-The equivalent plastic strain (PEEQ), plastic strain, and backstress vector can be output using `SDV, Solution dependent state variables` field output.
-The number of SDVs depends on the model considered (e.g., UVCuniaxial or UVCplanestress) and the number of backstresses.
-For UVCplanestress:
-- SDV(1) = equivalent plastic strain
-- SDV(2) to SDV(4) = plastic strains PE11, PE22, PE12
-- SDV(5+[3k-3])/(6+[3k-3])/(7+[3k-3]) = backstress components in directions 11/22/12 for component k
+### Constitutive parameters from the RESSLab version
 
+Let $N\geq 1$ be the number of backstresses. Each $C_k$ must be followed by its corresponding $\gamma_k$.
 
-### UVCmultiaxial
+| Parameter | Meaning | Uniaxial position | Plane-stress / multiaxial position |
+|---|---|---:|---:|
+| $E$ | Young's modulus | 1 | 1 |
+| $\nu$ | Poisson's ratio | Not entered | 2 |
+| $\sigma_{y,0}$ | Initial yield stress | 2 | 3 |
+| $Q_\infty$ | Saturation magnitude of isotropic hardening | 3 | 4 |
+| $b$ | Rate parameter for $Q_\infty$ | 4 | 5 |
+| $D_\infty$ | Saturation magnitude of the initial reduction in yield stress; set to zero to omit this term | 5 | 6 |
+| $a$ | Rate parameter for $D_\infty$; use a nonzero value | 6 | 7 |
+| $C_k$ | Kinematic hardening modulus for backstress $k$ | $5+2k$ | $6+2k$ |
+| $\gamma_k$ | Dynamic recovery parameter for backstress $k$; use a nonzero value | $6+2k$ | $7+2k$ |
 
-This UMAT (UVCmultiaxial.for) should be used with solid elements.
+Here $k=1,\ldots,N$. For a uniaxial backstress, $C_k/\gamma_k$ is its saturation magnitude; $C_k$ itself is not that saturation magnitude.
 
-#### Parameters
+The input sequences are:
 
-Follow the instructions under the Parameters section under UVCplanestress.
+```text
+Uniaxial:
+E, sy0, QInf, b, DInf, a, C1, gamma1, ..., CN, gammaN
 
-#### Set-up the user defined material
-
-- Create a user defined material, specify that the type is "Mechanical":
+Plane stress / multiaxial:
+E, nu, sy0, QInf, b, DInf, a, C1, gamma1, ..., CN, gammaN
 ```
-General > User Material
+
+### Optional damping parameters
+
+To enable the extension, append all four values in exactly this order:
+
+```text
+..., CN, gammaN, beta_R1, t1, beta_R2, t2
 ```
-- Set the number of parameters to be 9 + 2(N - 1).
-For example, there should be 11 parameters for 2 backstresses.
-- Enter the parameters following the order listed in this Parameters section
-- Assign space for the internal variables:
+
+For `UVCuniaxial_IS.for`, insert the six residual-stress inputs between `gammaN` and `beta_R1`, as detailed in Section 7.
+
+| Parameter | Meaning | Position in `PROPS` |
+|---|---|---|
+| $\beta_R^1$ | Stiffness-proportional damping coefficient for $t^1\leq t<t^2$ | `NPROPS - 3` |
+| $t^1$ | Total time at which the first damping stage begins | `NPROPS - 2` |
+| $\beta_R^2$ | Stiffness-proportional damping coefficient for $t\geq t^2$ | `NPROPS - 1` |
+| $t^2$ | Total time at which the second damping stage begins | `NPROPS` |
+
+Use $0\leq t^1<t^2$ and nonnegative damping coefficients for the staged damping described here. For constant stiffness-proportional damping from the start, use $t^1=0$ and $\beta_R^1=\beta_R^2$, with $t^2>0$.
+
+### Required counts
+
+“Without damping” below means without the added UMAT stiffness-proportional term; mass-proportional damping is configured separately.
+
+| Subroutine | Constants without damping | Depvar without damping | Constants with damping | Depvar with damping |
+|---|---:|---:|---:|---:|
+| Uniaxial | $6+2N$ | $1+N$ | $10+2N$ | $2+N$ |
+| Plane stress | $7+2N$ | $4+3N$ | $11+2N$ | $7+3N$ |
+| Multiaxial | $7+2N$ | $7+6N$ | $11+2N$ | $13+6N$ |
+| Uniaxial with residual stress (`IS`) | $12+2N$ | $1+N$ | $16+2N$ | $2+N$ |
+
+For **two backstresses** ($N=2$):
+
+| Subroutine | Constants / Depvar without damping | Constants / Depvar with damping | Damping input positions |
+|---|---:|---:|---|
+| Uniaxial | 10 / 3 | 14 / 4 | 11–14 |
+| Plane stress | 11 / 10 | 15 / 13 | 12–15 |
+| Multiaxial | 11 / 19 | 15 / 25 | 12–15 |
+| Uniaxial with residual stress (`IS`) | 16 / 3 | 20 / 4 | 17–20 |
+
+Do not allocate extra SDVs “just in case”: the code uses the exact Depvar count to identify the input layout and exits if neither layout matches. Supply complete backstress pairs and exactly the required constants. Setting both damping coefficients to zero while retaining all four damping inputs still requires the damping-enabled Depvar count.
+
+![RESSLab UVC parameter order and Depvar for a three-dimensional material with two backstresses](figures/Fig2.jpg)
+
+**Figure 2.** Material setup without the added damping term: 11 constants and Depvar = 19 for the multiaxial case with two backstresses. The displayed material parameters follow the RESSLab version of UVC.
+
+## 3. Stiffness-proportional damping implementation
+
+Rayleigh damping is conventionally expressed as
+
+$$
+\mathbf C=\alpha\mathbf M+\beta\mathbf K.
+$$
+
+For a user material, Abaqus allows mass-proportional damping to be assigned separately; stiffness-proportional damping must be implemented in the stress and Jacobian definitions of the UMAT. See [User-Defined Mechanical Material Behavior](https://docs.software.vt.edu/abaqusv2026/English/SIMACAEMATRefMap/simamat-c-usermat.htm).
+
+The supplied extension uses the **elastic material stiffness** $\mathbf D^{el}$, rather than the evolving elastoplastic tangent, to calculate its damping stress. For $\Delta t>0$:
+
+$$
+\boldsymbol\sigma_m
+=\boldsymbol\sigma_{\mathrm{UVC}}
++\beta_R(t)\mathbf D^{el}\frac{\Delta\boldsymbol\varepsilon}{\Delta t},
+$$
+
+$$
+\mathbf D_m^{\mathrm{tg}}
+=\mathbf D_{\mathrm{UVC}}^{\mathrm{tg}}
++\frac{\beta_R(t)}{\Delta t}\mathbf D^{el}.
+$$
+
+For uniaxial response, replace $\mathbf D^{el}$ with $E$. The time-dependent coefficient is
+
+$$
+\beta_R(t)=
+\begin{cases}
+0, & t<t^1,\\
+\beta_R^1, & t^1\leq t<t^2,\\
+\beta_R^2, & t\geq t^2.
+\end{cases}
+$$
+
+The implementation stores the constitutive stress $\boldsymbol\sigma_{\mathrm{UVC}}$ in the additional SDVs before adding the damping stress to `STRESS`. The next increment starts from this stored constitutive stress, so the damping stress is not accumulated as plasticity-model stress. Both stress and `DDSDDE` receive the damping contribution. When `DTIME <= 0`, the added damping contribution is skipped.
+
+### Time convention and activation
+
+The switch uses **`TIME(2)`, the total time at the beginning of the current increment**, as defined in the [Abaqus UMAT interface](https://docs.software.vt.edu/abaqusv2026/English/SIMACAESUBRefMap/simasub-c-umat.htm). It does not use step time or the time at the end of the increment. Thus, the selected coefficient applies throughout that increment. Place step boundaries at the switching times if exact alignment is required.
+
+The accumulated time includes preceding general steps. For example, after a static gravity step with a nominal duration of 1, choose $t^1=1$ to start the first damping stage at the beginning of the following dynamic step. If that dynamic stage lasts 44, its end is at total time $t^2=45$.
+
+The code does not identify whether a step is static or dynamic. A static step that reaches an active time range also receives the added rate-dependent term. Set the time thresholds to match the intended loading sequence.
+
+### Abaqus damping settings
+
+Under **Mechanical → Damping**, assign the required mass-proportional coefficient $\alpha$ and set the material **Beta field to zero**. Enter $\beta_R^1$ and $\beta_R^2$ only in the User Material constants. Mass-proportional damping is optional; use $\alpha=0$ if it is not required. The UMAT's time switches control only its added stiffness-proportional term, not $\alpha$.
+
+![Damping-enabled material constants and the separate Abaqus mass-proportional damping setting](figures/Fig3.jpg)
+
+**Figure 3.** Example with two backstresses and the four damping inputs appended in positions 12–15: $\beta_R^1=0.00472$, $t^1=1$, $\beta_R^2=0.345$, and $t^2=45$. The Abaqus damping dialog shows $\alpha=0.104$ and Beta = 0. For the multiaxial subroutine, this setup requires **Depvar = 25**; for plane stress it requires **13**. The label “Original UVC material parameters” in the supplied image refers to the **[RESSLab version of UVC](https://github.com/RESSLab-Team/UVC_MatMod)**.
+
+The stress-valued constants in Figure 3 are 100 times those in Figure 2, consistent with converting N/mm² to N/cm². The screenshots therefore illustrate different length units; use one consistent unit system throughout the actual model. The damping coefficients are example values, not a general calibration.
+
+![Example story drift history showing two total-time thresholds for stiffness-proportional damping](figures/Fig4.jpg)
+
+**Figure 4.** Illustration of the two damping stages in a moment-resisting frame analysis. The phrase “No damping before $t^1$” in the image refers only to the added **stiffness-proportional** term. A larger second-stage coefficient suppresses free vibration to assist residual-drift evaluation in this example; its value and activation time should be chosen for the intended post-motion analysis.
+
+### Input-file example: multiaxial, two backstresses
+
+The following material block uses the stress-valued constants from Figure 2 in N/mm² and the damping values from Figure 3 with time measured in seconds:
+
+```text
+*Material, name=UVC_D
+*Damping, alpha=0.104, beta=0.
+*Depvar
+25,
+*User Material, constants=15
+200000., 0.3, 379.5, 141.47, 15.2, 135.95, 211.16, 25621.
+255.12, 942.18, 3.16, 0.00472, 1., 0.345, 45.
 ```
-General > Depvar
+
+This is a material-definition example, not a complete dynamic model. Define the model's density and/or point masses, sections, loading, and analysis steps consistently. To use the same multiaxial material without the added damping term, omit the last four constants, set `constants=11`, and set Depvar to 19. For the plane-stress file, the same constant sequence applies but Depvar is 13 with damping or 10 without it. For uniaxial response, omit Poisson's ratio and use the counts in Section 2.
+
+## 4. State variables and stress output
+
+Request **SDV** field output to obtain the internal variables. Equivalent plastic strain is stored in `SDV1`; use it when evaluating the UVC plasticity response. All indices below are one-based and $k=1,\ldots,N$.
+
+| Subroutine | State variables retained in both modes | Additional SDVs with damping |
+|---|---|---|
+| Uniaxial, including `IS` | `SDV1`: equivalent plastic strain; `SDV(1+k)`: backstress $k$ | `SDV(N+2)`: constitutive axial stress |
+| Plane stress | `SDV1`: equivalent plastic strain; `SDV2–4`: plastic strains 11, 22, 12; backstress $k$ occupies three entries starting at `5+3(k-1)` | Three entries starting at `5+3N`: constitutive stresses 11, 22, 12 |
+| Multiaxial | `SDV1`: equivalent plastic strain; `SDV2–7`: plastic strains 11, 22, 33, 12, 13, 23; backstress $k$ occupies six entries starting at `8+6(k-1)` | Six entries starting at `8+6N`: constitutive stresses 11, 22, 33, 12, 13, 23 |
+
+Plastic shear strains use the UMAT engineering-shear convention. Backstress components use the same component order as stress. The multiaxial backstress blocks advance by **six** entries for each backstress.
+
+With two backstresses, the added constitutive-stress outputs are `SDV4` for both uniaxial variants, `SDV11–13` for plane stress, and `SDV20–25` for multiaxial response. In the `IS` variant, this constitutive stress includes the residual-stress initialization and subsequent constitutive evolution, while excluding the added damping stress.
+
+In damping-enabled mode, the returned `STRESS` and corresponding **S** output include the added damping stress. Use the appended SDVs to recover the constitutive stress without that contribution; subtract them from the corresponding S components to obtain the added damping stress. The supplied routines do not separately accumulate damping energy in `SSE`, `SPD`, or `SCD`.
+
+## 5. Beam and shell sections; hourglass control
+
+The section settings from the RESSLab version remain relevant when using the damping extension.
+
+### Beam transverse shear stiffness
+
+For shear-flexible beam sections, specify the transverse shear stiffness under **Sections → Edit Section → Stiffness → Specify Transverse Shear**. The reference guidance uses
+
+$$
+K_{13}=K_{23}=kAG,\qquad G=\frac{E}{2(1+\nu)},
+$$
+
+where $A$ is the cross-sectional area and $k$ is the section shear correction factor. The reference example uses $k=0.44$ for an I-shaped section; select the appropriate section-dependent values for the actual model. Poisson's ratio is needed for this section calculation even though it is not an input to the uniaxial UMAT.
+
+### Shell transverse shear stiffness
+
+For a homogeneous isotropic shell of thickness $h$, the reference setup uses
+
+$$
+K_{11}=K_{22}=\frac{5}{6}Gh,\qquad K_{12}=0.
+$$
+
+Enter these values under **Sections → Edit Section → Advanced → Transverse Shear Stiffnesses → Specify Values**. Other section constructions require their appropriate shear stiffnesses.
+
+### Reduced-integration elements
+
+The reference setup recommends **Enhanced** hourglass control for reduced-integration elements such as S4R and C3D8R: **Element Type → Hourglass Control → Enhanced**. Menu wording can vary by Abaqus release. The added UMAT damping stress acts on the constitutive stress components; it does not implement separate damping of section transverse shear or hourglass contributions.
+
+## 6. Units and convergence tolerances
+
+Abaqus requires a consistent unit system. The constitutive parameters $E$, $\sigma_{y,0}$, $Q_\infty$, $D_\infty$, and $C_k$ have stress units. The rates $b$, $a$, and $\gamma_k$ are per unit plastic strain. The damping coefficients $\beta_R^1$ and $\beta_R^2$ have time units, $\alpha$ has inverse-time units, and $t^1$, $t^2$ have time units.
+
+The routines use absolute convergence tolerances. The supplied defaults are `TOL=1D-10` for multiaxial, `1D-8` for plane stress, and `1D-10` for uniaxial response. The multiaxial residual has stress units; the plane-stress and uniaxial yield residuals have stress-squared units. Consequently, a change of stress units requires corresponding scaling of `TOL` as well as of the material parameters.
+
+The following values preserve the same dimensional tolerance when converting from the supplied N–mm convention while keeping force in Newtons:
+
+| Subroutine | N–mm | N–cm | N–dm | N–m |
+|---|---:|---:|---:|---:|
+| Multiaxial | `1D-10` | `1D-8` | `1D-6` | `1D-4` |
+| Plane stress | `1D-8` | `1D-4` | `1D0` | `1D4` |
+| Uniaxial | `1D-10` | `1D-6` | `1D-2` | `1D2` |
+
+These are unit conversions of the default tolerances, not independently validated optimal settings for every problem. Changing length units alone does not change $\beta_R$ when the time unit is unchanged. Density, loads, geometry, section stiffnesses, and all other inputs must also be consistent.
+
+## 7. Separate uniaxial residual-stress variant
+
+[UVCuniaxial_IS.for](UVCuniaxial_IS.for) retains the Young (1972) residual stress distribution for I-shaped sections from the RESSLab version and adds the same optional damping formulation as `UVCuniaxial.for`.
+
+After the $6+2N$ uniaxial constitutive parameters, append these six values:
+
+| Order after the last backstress pair | Parameter | Meaning |
+|---:|---|---|
+| 1 | `dcl` | Flange-to-flange centerline depth, $d-t_f$ |
+| 2 | `bf` | Flange width |
+| 3 | `tf` | Flange thickness |
+| 4 | `tw` | Web thickness |
+| 5 | `npt_flange` | Number of integration points on each flange |
+| 6 | `npt_web` | Number of integration points along the web |
+
+To enable damping, append the four damping constants **after these six inputs**:
+
+```text
+E, sy0, QInf, b, DInf, a, C1, gamma1, ..., CN, gammaN,
+dcl, bf, tf, tw, npt_flange, npt_web,
+beta_R1, t1, beta_R2, t2
 ```
-Set the "Number of solution-dependent state variables" to 7 + 6N.
-For example, for two backstresses the value should be 19.
 
-Now the user material can be assigned to sections as any material included with Abaqus.
+| Mode | Number of constants | Depvar | Counts for two backstresses |
+|---|---:|---:|---|
+| Without added damping | $12+2N$ | $1+N$ | 16 constants; Depvar = 3 |
+| With added damping | $16+2N$ | $2+N$ | 20 constants; Depvar = 4 |
 
+The integration-point inputs must match the beam section definition. At `TIME(2) = 0`, the Young residual stress is added to the incoming axial stress. In damping-enabled mode, this combined initial stress initializes the additional stress SDV; subsequent increments use the stored constitutive stress. The residual-stress function receives only its six inputs, excluding the four damping constants.
 
-#### Specify enhanced hourglass control
- 
-Follow the instructions under the Specify enhanced hourglass control section under UVCplanestress.
+For two backstresses, the following example uses the constitutive and section values in `Lamarche-1-Beam.inp`, followed by the illustrative damping settings used above:
 
+```text
+*Material, name=UVC_IS_D
+*Damping, alpha=0.104, beta=0.
+*Depvar
+4,
+*User Material, constants=20
+200000., 373.72, 141.47, 15.2, 135.95, 211.16, 25621., 235.12
+942.18, 3.16, 297.4, 307., 20.6, 13.1, 5., 5.
+0.00472, 1., 0.345, 45.
+```
 
-#### Make the UMAT available to Abaqus
+This is a material block; the model still requires compatible section integration, mass, loading, and analysis-step definitions. For this layout, `SDV4` is the constitutive axial stress without the damping term. For the same material without added damping, omit the final four constants and use 16 constants with Depvar = 3.
 
-Follow the directions under Make the UMAT available to Abaqus section under UVCuniaxial.
+The residual-stress function retains fixed numerical stress coefficients (e.g. 165 and 100, in the reference MPa convention); these also require conversion if another stress unit is used. The uniaxial tolerance guidance in Section 6 applies to both uniaxial variants.
 
+## 8. Examples and verification
 
-#### Order of the state variables
+### Existing cyclic examples
 
-The equivalent plastic strain (PEEQ), plastic strain, and backstress vector can be output using `SDV, Solution dependent state variables` field output.
-The number of SDVs depends on the model considered and the number of backstresses.
-For UVCmultiaxial:
-- SDV(1) = equivalent plastic strain
-- SDV(2) to SDV(7) = plastic strains PE11, PE22, PE33, PE12, PE13, PE23
-- SDV(8+[3k-3])/(9+[3k-3])/(10+[3k-3])/(11+[3k-3])/(12+[3k-3])/(13+[3k-3]) = backstress components in directions 11/22/33/12/13/23 for component k
+The [testing directory](testing/readme.md) retains the reference cyclic input decks. They use the constitutive input layout without the four damping parameters. Some contain extra SDV allocations that must be corrected before use with the current automatic layout detection:
 
+| Input deck | Subroutine | Required Depvar for its active two-backstress material |
+|---|---|---:|
+| `Truss-UMAT-Disp-Cyclic.inp` | `UVCuniaxial.for` | 3 (deck currently specifies 8) |
+| `Truss-UMAT-Force-Cyclic.inp` | `UVCuniaxial.for` | 3 (active `UMAT` material currently specifies 4) |
+| `Shell-Biaxial-UMAT.inp` | `UVCplanestress.for` | 10 (already matches) |
+| `Cube_Cyclic_Disp_UMAT.inp` | `UVCmultiaxial.for` | 19 (deck currently specifies 28) |
+| `Lamarche-1-Beam.inp` | `UVCuniaxial_IS.for` | 3 (deck currently specifies 4) |
 
+The force-controlled truss deck also contains an unused six-constant `UMAT-Iso-Only` material. The main UMAT requires at least one backstress; that unused material is not a supported zero-backstress example. The separate `Lamarche-1-Beam.inp` example uses `UVCuniaxial_IS.for`.
+
+The input decks have been retained unchanged and have not been rerun in Abaqus for this update. Historical reference-test results are described in the testing README.
+
+The `IS` damping extension was compiled with GNU Fortran 14.2 and checked using a standalone driver with a minimal substitute for `ABA_PARAM.INC`. Checks passed for cyclic response against the supplied undamped `IS` routine, one to three backstresses, flange and web section points, initial residual stress, zero damping coefficients, both damping stages and their switching times, zero time increments, and the added tangent contribution. Invalid Depvar layouts and zero backstresses were also rejected as intended. Abaqus/compiler integration and complete Abaqus analyses remain to be verified separately.
+
+### Source-version note
+
+The damping extension is based on the RESSLab version supplied with the 16-Nov-2026 constitutive updates. These updates are retained in the supplied UMATs:
+
+- The multiaxial implementation recomputes the yield-surface normal within the return-mapping loop and uses the corresponding updated consistent tangent.
+- Both uniaxial implementations evaluate the backstress exponential using the accumulated plastic strain increment, `ABS(e_p_total)`.
+- The plane-stress implementation evaluates the backstress exponentials using `dep_eq`, with `ep_eq = ep_eq_init + dep_eq`.
+
+The uniaxial and plane-stress evaluations therefore retain the direct-increment treatment introduced in the RESSLab update to avoid rounding errors from subtracting accumulated equivalent plastic strains. The optional damping adds input-layout detection, storage of the constitutive stress, and damping contributions to stress and the Jacobian. The supplied `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for` remain unchanged. `UVCuniaxial_IS.for` has been extended to include this damping while preserving its constitutive update and residual-stress functions.
+
+## References and attribution
+
+1. **RESSLab version of UVC:** [RESSLab-Team/UVC_MatMod](https://github.com/RESSLab-Team/UVC_MatMod).
+2. Hartloper, A. R., de Castro e Sousa, A., and Lignos, D. G. (2021). “Constitutive Modeling of Structural Steels: Nonlinear Isotropic/Kinematic Hardening Material Model and Its Calibration.” *Journal of Structural Engineering*, 147(4), 04021031. [DOI](https://doi.org/10.1061/(ASCE)ST.1943-541X.0002964).
+3. Suchocki (2022), return-mapping and tangent formulation referenced by the multiaxial implementation. [DOI](https://doi.org/10.1007/s00707-021-03069-3).
+4. Dassault Systèmes. *Abaqus Documentation*: [User-Defined Mechanical Material Behavior](https://docs.software.vt.edu/abaqusv2026/English/SIMACAEMATRefMap/simamat-c-usermat.htm), [UMAT](https://docs.software.vt.edu/abaqusv2026/English/SIMACAESUBRefMap/simasub-c-umat.htm), and [Material Damping](https://docs.software.vt.edu/abaqusv2026/English/SIMACAEMATRefMap/simamat-c-dampingopt.htm). These links point to the 2026 documentation; consult the corresponding documentation for the installed release.
+
+The RESSLab UVC implementation credits Alex Hartloper, with subsequent contributions identified in the [main README](../README.md). The reference model, its later numerical updates, and the optional damping extension are distinct contributions. The existing [MIT license](../LICENSE) and author acknowledgments are retained.
