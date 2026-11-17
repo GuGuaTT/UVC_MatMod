@@ -47,8 +47,6 @@ This assumes `MyModel.inp` and the selected subroutine are in the working direct
 
 ## 2. Material constants and Depvar
 
-> **Compatibility prerequisite:** The Depvar rules in this section require the compatibility patch described in `FEEDBACK_2026-11-17.md`. The Fortran files in the supplied archive still use exact-count detection for both input layouts; apply that patch before using extra SDVs without damping. This README update does not modify the subroutines.
-
 Create a material using **General → User Material → Mechanical**. Enter the constants in the order below and set **General → Depvar → Number of solution-dependent state variables** to at least the required count without damping, or to the exact required count with damping.
 
 Each subroutine can run with or without the added stiffness-proportional damping. It determines the mode from the combination of `NPROPS` (number of constants) and `NSTATV` (Depvar). **The four damping constants must be the last four inputs.** They follow all backstress pairs; in `UVCuniaxial_IS.for`, the six geometry and integration-point inputs also precede them.
@@ -311,13 +309,13 @@ The residual-stress function retains fixed numerical stress coefficients (e.g. 1
 
 ### Existing cyclic examples
 
-The [testing directory](testing/readme.md) contains five UMAT example decks: `Truss-UMAT-Disp-Cyclic.inp`, `Truss-UMAT-Force-Cyclic.inp`, `Shell-Biaxial-UMAT.inp`, `Cube_Cyclic_Disp_UMAT.inp`, and `Lamarche-1-Beam.inp`. All use input without the four damping constants. With the Depvar compatibility patch described in Section 2, their existing Depvar allocations are accepted, including extra SDVs, so the decks can be used as supplied without editing their Depvar values.
+The [testing directory](testing/readme.md) contains five UMAT example decks: `Truss-UMAT-Disp-Cyclic.inp`, `Truss-UMAT-Force-Cyclic.inp`, `Shell-Biaxial-UMAT.inp`, `Cube_Cyclic_Disp_UMAT.inp`, and `Lamarche-1-Beam.inp`. All use input without the four damping constants.
 
 The force-controlled truss deck also contains an unused six-constant `UMAT-Iso-Only` material. The main UMAT requires at least one backstress; that unused material is not a supported zero-backstress example. The separate `Lamarche-1-Beam.inp` example uses `UVCuniaxial_IS.for`.
 
 The input decks have been retained unchanged and have not been rerun in Abaqus for this update. Historical reference-test results are described in the testing README.
 
-The `IS` damping extension was compiled with GNU Fortran 14.2 and checked using a standalone driver with a minimal substitute for `ABA_PARAM.INC`. Checks passed for cyclic response against the supplied undamped `IS` routine, one to three backstresses, flange and web section points, initial residual stress, zero damping coefficients, both damping stages and their switching times, zero time increments, and the added tangent contribution. Invalid Depvar layouts and zero backstresses were also rejected as intended. These standalone checks preceded the Depvar compatibility patch. Abaqus/compiler integration and complete Abaqus analyses remain to be verified separately.
+The `IS` damping extension was compiled with GNU Fortran 14.2 and checked using a standalone driver with a minimal substitute for `ABA_PARAM.INC`. Checks passed for cyclic response against the supplied undamped `IS` routine, one to three backstresses, flange and web section points, initial residual stress, zero damping coefficients, both damping stages and their switching times, zero time increments, and the added tangent contribution. Invalid Depvar layouts and zero backstresses were also rejected as intended. Abaqus/compiler integration and complete Abaqus analyses remain to be verified separately.
 
 ### Source-version note
 
