@@ -14,7 +14,7 @@ This package is based on the **[RESSLab version of UVC](https://github.com/RESSL
 ## Changelog
 
 - 17-Nov-2026 (Abaqus damping extension and documentation merge):
-  - Incorporate the [README.md](Abaqus/README.md)supplied damping-capable `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for`. Each file selects its input layout using the numbers of constants and state variables; the damping inputs are `beta_R1, t1, beta_R2, t2` at the end.
+  - Incorporate the supplied damping-capable `UVCuniaxial.for`, `UVCplanestress.for`, and `UVCmultiaxial.for`. Each file selects its input layout using the numbers of constants and state variables; the damping inputs are `beta_R1, t1, beta_R2, t2` at the end.
   - Extend `UVCuniaxial_IS.for` with the same optional damping formulation. Preserve the Young residual-stress distribution, initialize the stored constitutive stress with the initial residual stress, and append the damping inputs after the six residual-stress inputs. With two backstresses, use 20 constants and Depvar = 4 with damping, or 16 constants and Depvar = 3 without it.
   - Merge material setup, damping theory, state-variable output, units, and the four supplied figures into `Abaqus/README.md`. Clarify attribution to the RESSLab version of UVC.
   - Document Depvar changes needed for the retained legacy input decks. 

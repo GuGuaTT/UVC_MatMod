@@ -133,7 +133,7 @@ For a user material, Abaqus allows mass-proportional damping to be assigned sepa
 The supplied extension uses the **elastic material stiffness** $\mathbf D^{el}$, rather than the evolving elastoplastic tangent, to calculate its damping stress. For $\Delta t>0$:
 
 $$
-\boldsymbol\sigma_m
+\boldsymbol\sigma_m[README.md](../README.md)
 =\boldsymbol\sigma_{\mathrm{UVC}}
 +\beta_R(t)\mathbf D^{el}\frac{\Delta\boldsymbol\varepsilon}{\Delta t},
 $$
